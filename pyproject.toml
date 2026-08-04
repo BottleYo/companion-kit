@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portable-companion-kit"
+version = "0.3.0"
+description = "宿主无关的虚拟陪伴人格与图片决策核心"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Companion Kit contributors" }]
+dependencies = []
+
+[tool.setuptools]
+package-dir = { "" = "skills/virtual-companion/scripts" }
+
+[tool.setuptools.packages.find]
+where = ["skills/virtual-companion/scripts"]
+include = ["companion_kit*"]
+
+[tool.setuptools.package-data]
+companion_kit = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]

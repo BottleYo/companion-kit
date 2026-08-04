@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Companion Kit · 本地陪伴对象面板</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__copy">
+        <p class="eyebrow">本地运行 · 私有保存 · 不上传聊天</p>
+        <h1>创建一个属于你的<br>虚拟陪伴对象</h1>
+        <p class="hero__lead">选一种相处风格，起一个称呼，然后安装到你常用的 AI 工具里。</p>
+      </div>
+      <div class="hero__mark" aria-hidden="true">
+        <span class="hero__orb"></span>
+        <span class="hero__spark">✦</span>
+      </div>
+    </header>
+
+    <main>
+      <section id="authError" class="notice notice--error" hidden>
+        <strong>这个面板链接已失效。</strong>
+        <span>请回到终端重新运行面板命令。</span>
+      </section>
+
+      <section class="panel" aria-labelledby="setupTitle">
+        <div class="section-heading">
+          <div>
+            <p class="step">第 1 步</p>
+            <h2 id="setupTitle">选择相处风格</h2>
+          </div>
+          <span id="profileStatus" class="status-chip">读取中</span>
+        </div>
+        <div id="templateGrid" class="template-grid" aria-live="polite"></div>
+
+        <div class="name-row">
+          <label for="displayName">你想怎么称呼 TA？</label>
+          <div class="name-row__controls">
+            <input id="displayName" maxlength="40" autocomplete="off" placeholder="例如：小禾">
+            <button id="saveProfile" class="button button--primary" type="button">保存陪伴对象</button>
+          </div>
+          <div class="relationship-settings" aria-label="关系偏好">
+            <label>
+              <span>相处起点</span>
+              <select id="startingMode">
+                <option value="natural">从自然认识开始（推荐）</option>
+                <option value="familiar">像已经熟悉一阵</option>
+              </select>
+            </label>
+            <label class="toggle-row">
+              <input id="romanceEnabled" type="checkbox">
+              <span>
+                允许自然发展为恋爱式陪伴
+                <small>默认关闭；开启也不会立刻变成恋人，仍需信任与亲近逐步形成。</small>
+              </span>
+            </label>
+          </div>
+          <p id="saveHint" class="hint">配置只保存在这台电脑的私有目录。</p>
+        </div>
+      </section>
+
+      <section class="preview-layout" aria-labelledby="previewTitle">
+        <article class="panel preview-card">
+          <div class="section-heading section-heading--compact">
+            <div>
+              <p class="step">即时预览</p>
+              <h2 id="previewTitle">TA 会是什么样</h2>
+            </div>
+          </div>
+          <div class="identity-row">
+            <div id="avatarLetter" class="avatar-letter" aria-hidden="true">伴</div>
+            <div>
+              <h3 id="previewName">尚未选择</h3>
+              <p id="previewTraits" class="muted">选择模板后，这里会显示人格特点。</p>
+            </div>
+          </div>
+          <dl class="preview-details">
+            <div>
+              <dt>聊天方式</dt>
+              <dd id="previewSpeech">—</dd>
+            </div>
+            <div>
+              <dt>固定形象</dt>
+              <dd id="previewAppearance">—</dd>
+            </div>
+            <div>
+              <dt>照片质感</dt>
+              <dd id="previewStyle">—</dd>
+            </div>
+            <div>
+              <dt>相处方式</dt>
+              <dd id="previewRelationship">从自然认识开始</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="panel future-card">
+          <p class="step">下一阶段</p>
+          <h2>创建人物原型图</h2>
+          <p>可以让 AI 生成候选形象，也可以上传已授权参考图。确认后，后续照片会固定使用同一人物。</p>
+          <div class="future-actions" aria-label="尚未开放的原型图功能">
+            <button type="button" disabled>帮我生成形象</button>
+            <button type="button" disabled>上传参考图</button>
+          </div>
+          <span class="coming-soon">当前版本尚不调用生图接口</span>
+        </article>
+      </section>
+
+      <section class="panel" aria-labelledby="installTitle">
+        <div class="section-heading">
+          <div>
+            <p class="step">第 2 步</p>
+            <h2 id="installTitle">安装到常用工具</h2>
+          </div>
+          <span class="status-chip status-chip--soft">安装前会再次确认</span>
+        </div>
+        <p class="section-intro">消息型工具和桌面型工具使用不同安装方式，面板会自动选择正确路径。</p>
+        <div id="hostGrid" class="host-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="privacy-strip" aria-label="隐私说明">
+        <span aria-hidden="true">●</span>
+        <p><strong>隐私边界：</strong>不读取现有 SOUL、USER、记忆、聊天记录或照片目录；本阶段也不会联网生图或发送消息。</p>
+      </section>
+    </main>
+
+    <dialog id="installDialog" class="install-dialog">
+      <form method="dialog">
+        <p class="step">安装确认</p>
+        <h2 id="dialogTitle">安装到工具</h2>
+        <p id="dialogSummary"></p>
+        <div class="dialog-actions">
+          <button value="cancel" class="button button--secondary">先不安装</button>
+          <button id="confirmInstall" value="default" class="button button--primary">确认安装</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

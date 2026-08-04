@@ -1,0 +1,1 @@
+"""Companion Kit tests."""

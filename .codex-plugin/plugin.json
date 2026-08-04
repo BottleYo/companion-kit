@@ -1,0 +1,18 @@
+{
+  "name": "companion-kit",
+  "version": "0.3.0",
+  "description": "用本地面板初始化和管理虚拟陪伴人格，并安全规划固定人物照片。",
+  "author": {
+    "name": "Companion Kit contributors"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "虚拟陪伴对象",
+    "shortDescription": "本地人格聊天与固定人物照片规划",
+    "longDescription": "用本地控制面和结构化配置提供陪伴式表达；普通任务继续由 Codex 完成，只有明确照片命令才进入图片规划，并以本地关系契约限制表达变化。",
+    "developerName": "Companion Kit contributors",
+    "category": "Productivity",
+    "capabilities": ["Local setup", "Chat", "Image planning"],
+    "defaultPrompt": "使用 $virtual-companion；如果还没有默认配置，先问我是快速初始化还是打开本地管理面板。保留原有工具能力，只在我明确要求时规划人物照片。"
+  }
+}

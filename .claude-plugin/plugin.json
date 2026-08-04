@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "companion-kit",
+  "version": "0.3.0",
+  "description": "本地面板管理人格与固定人物照片规划，同时保留 Claude Code 原有任务能力。",
+  "author": {
+    "name": "Companion Kit contributors"
+  },
+  "license": "MIT",
+  "skills": "./skills/"
+}
