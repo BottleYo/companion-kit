@@ -1,6 +1,6 @@
 ---
 name: virtual-companion
-description: 在 OpenClaw、Hermes、Codex 或 Claude Code 中启用本地虚拟陪伴人格，同时保留宿主原有的问题解决与工具能力；当用户要求与陪伴对象聊天、加载 companion profile、生成或规划固定人物照片，或使用“/photo”“/companion-photo”“照片：”命令时使用。Codex 支持当前任务原生预览与经单次确认的 gpt-image-2/high 严格模式。
+description: 在 OpenClaw、Hermes、Codex 或 Claude Code 中启用本地虚拟陪伴人格，同时保留宿主原有的问题解决与工具能力；当用户要求与陪伴对象聊天、加载 companion profile、生成或规划固定人物照片，或使用“/photo”“/companion-photo”“照片：”命令时使用。Codex、OpenClaw 与 Hermes 具有彼此独立的图片路径；Claude 当前安全规划。
 ---
 
 # 虚拟陪伴对象
@@ -10,8 +10,8 @@ description: 在 OpenClaw、Hermes、Codex 或 Claude Code 中启用本地虚拟
 ## 加载配置
 
 1. 优先使用用户明确给出的 `.toml` 配置。
-2. 没有显式配置时，运行 `python3 scripts/companionctl.py validate`；它会读取初始化向导生成的默认配置。
-3. 默认配置不存在时，运行 `python3 scripts/companionctl.py templates`，用简单中文展示模板并询问选择和称呼，再运行 `init --template <模板> --display-name <称呼>`。
+2. 没有显式配置时，运行 `python3 scripts/companionctl.py validate --host <当前宿主>`；它只读取当前宿主的独立配置。
+3. 默认配置不存在时，运行 `python3 scripts/companionctl.py templates`，用简单中文展示模板并询问选择和称呼，再运行 `init --host <当前宿主> --template <模板> --display-name <称呼>`。
 4. 用户要求可视化初始化、查看或管理时，运行 `python3 scripts/companionctl.py ui`。面板只是本机控制面，不是聊天入口。
 5. 用户只要求临时演示时，使用 `assets/demo_companion.toml`，不要替用户创建配置。
 6. 不要自动读取或导入任何 `SOUL.md`、`USER.md`、`MEMORY.md`、聊天记录、会话数据库或照片目录。
@@ -34,11 +34,13 @@ python3 scripts/companionctl.py decide \
 
 能力参数只能按当前宿主真实能力加入：`--can-generate`、`--can-deliver`、`--has-target`、`--can-attach`。不要虚构能力。用户给出其他配置时，额外加入 `--config <配置路径>`。
 
+## 图片模式选择
+
+Codex 先运行 `python3 scripts/companionctl.py photo status`。OpenClaw 或 Hermes 先运行 `python3 scripts/companionctl.py event-photo status --host <当前宿主>`。四个宿主彼此独立，不因为另一个宿主已配置就假定当前宿主可用。
+
+用户第一次只说了照片画面、当前宿主同时具有快速和严格模式、且尚无固定参考时，只问一个短问题：“想先快速试拍，还是把长相固定下来？固定形象会单独确认 API 费用。”不要一次抛出模型、端点、参数和命令。已有有效固定参考时默认进入严格模式的单次确认；严格模式未就绪时再提供当前宿主真实存在的选择，绝不自动降级。
+
 ## Codex 图片模式
-
-先运行 `python3 scripts/companionctl.py photo status`。四个宿主彼此独立；本版本只有 Codex 接入真实图片闭环。
-
-用户第一次只说了照片画面、没有指定模式且尚无固定参考时，只问一个短问题：“想先快速试拍，还是把长相固定下来？固定形象会单独确认 API 费用。”不要一次抛出模型、端点、参数和命令。已有有效固定参考时默认进入严格模式的单次确认；严格模式未就绪时再让用户选择原生预览或稍后配置，绝不自动降级。
 
 ### 原生模式：默认轻便选择
 
@@ -114,12 +116,25 @@ python3 scripts/companionctl.py decide \
 - 把“拍照”理解为陪伴对象分享当下，而不是用户向图片机器人下达生产指令；技术说明只在配置、授权或失败时出现。
 - 普通问题解决不受关系表达影响。当前版本不从聊天自动打亲密度分，也不得凭感觉篡改关系状态。
 
-## 其他宿主
+## OpenClaw / Hermes 图片模式
 
-OpenClaw、Hermes 与 Claude 在 `0.4.0` 仍只输出照片计划，不真实调用 Provider 或外发图片。按宿主读取一个参考文件：
+执行前必须读取 `references/openclaw-hermes.md`。
+
+- OpenClaw 快速模式：只调用当前宿主的 `image_generate`，精确请求 `openai/gpt-image-2`、`high`、`1024x1536`、单张 PNG；该路径只能称为 `host_managed`，不能称为官方 API 严格直连。宿主负责异步回到原会话，Companion Kit 不叠加回调或重试。
+- OpenClaw / Hermes 严格模式：使用 `event-photo prepare/run/handoff`，固定官方 OpenAI Image API、`gpt-image-2/high` 和唯一参考图。没有 `OPENAI_API_KEY` 时在创建授权前停止。
+- `instance-scope` 与 `conversation-scope` 必须由当前宿主可信上下文提供稳定不透明值；`request-event-id` 使用当前入站事件的稳定标识。不得从聊天正文、联系人昵称或“最近会话”猜测。
+- `prepare` 后用自然语言取得一次付费确认；下一条确认消息可以使用新的 `request-event-id`，但必须保持同一宿主、实例、会话、`job_id`、`plan_id` 和原始照片文本。
+- `run` 只产生经过校验的本地资产，不等于已发送。随后必须调用一次 `handoff`，并严格按宿主参考文件把图片交给当前回复边界；不得传入任意联系人、chat ID、thread ID 或跨频道目标。
+- `handoff` 后状态是 `delivery_unknown`。只有宿主明确返回当前会话媒体接管回执时才能调用 `delivered --confirm-receipt`；没有回执就保持该状态，不报告“已发送”、不自动重投。
+- Hermes 只能在当前普通响应中使用 `MEDIA:<path>` 交给 Gateway；不得调用显式跨频道 `send_message`。OpenClaw 只能使用当前回复的媒体工具且不填写任意目标。
+- 给用户的文字保持自然，只说与陪伴和失败恢复有关的内容；绝不显示 CLI JSON、绝对路径、作业 ID、Provider、Router 或状态机。
+
+## 宿主参考
 
 - OpenClaw 或 Hermes：读取 `references/openclaw-hermes.md`。
 - Codex 或 Claude：读取 `references/codex-claude.md`。
+
+Claude 在 `0.5.0` 仍只输出照片计划。缺少已证明的当前任务图片与附件契约时，不得复用 Codex 或事件型宿主执行器冒充 Claude 能力。
 
 ## 隐私边界
 
@@ -127,4 +142,5 @@ OpenClaw、Hermes 与 Claude 在 `0.4.0` 仍只输出照片计划，不真实调
 - 不把用户参考图、生成图片或聊天样本放进 Skill/插件发行包。
 - 严格模式只接受 Companion Kit 当次生成、用户确认的虚构成年人原型；本版本不导入任意外部照片或真人身份。
 - 本地只保留当前身份版本的一张参考图；候选只有一个槽位，普通成图是待投递的短期文件，不形成图片历史。
+- 每个宿主默认使用独立人格、授权、参考图、短期成图和事件作业目录；不要自动跨宿主复制或共享。
 - 不默认持久化对话，不自动跨宿主共享关系或图片状态。

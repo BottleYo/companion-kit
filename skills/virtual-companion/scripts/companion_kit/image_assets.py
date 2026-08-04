@@ -425,6 +425,84 @@ class ImageAssetStore:
             path=selected_image,
         )
 
+    def resolve_candidate(
+        self,
+        *,
+        candidate_id: str,
+        profile_id: str,
+        identity_version: int,
+        task_scope: str,
+    ) -> Path:
+        """校验候选仍属于当前会话，但不把它提升为身份参考。"""
+
+        try:
+            with self._locked():
+                image_path, _ = self._verified_candidate_locked(
+                    candidate_id=candidate_id,
+                    profile_id=profile_id,
+                    identity_version=identity_version,
+                    task_scope=task_scope,
+                )
+                return image_path
+        except (OSError, InterprocessLockError) as exc:
+            raise ImageAssetError("无法读取候选原型图片") from exc
+
+    def _verified_candidate_locked(
+        self,
+        *,
+        candidate_id: str,
+        profile_id: str,
+        identity_version: int,
+        task_scope: str,
+    ) -> tuple[Path, bytes]:
+        if not _OPAQUE_ID_RE.fullmatch(str(candidate_id or "")) or not str(
+            candidate_id
+        ).startswith("cand_"):
+            raise ImageAssetError("candidate_id 格式无效")
+        profile_root = self._profile_root(profile_id, identity_version)
+        image_path = profile_root / "pending.png"
+        manifest_path = profile_root / "pending.json"
+        manifest = _load_manifest(manifest_path, _PENDING_KEYS)
+        if (
+            manifest["candidate_id"] != candidate_id
+            or manifest["profile_id"] != profile_id
+            or manifest["identity_version"] != identity_version
+            or manifest["task_scope_digest"] != _task_digest(task_scope)
+        ):
+            raise ImageAssetError("候选原型与当前会话或身份版本不匹配")
+        if image_path.is_symlink() or not image_path.is_file():
+            raise ImageAssetError("候选原型图片不存在")
+        sanitized, width, height = sanitize_png(image_path.read_bytes())
+        if (
+            sha256(sanitized).hexdigest() != manifest["sha256"]
+            or width != manifest["width"]
+            or height != manifest["height"]
+        ):
+            raise ImageAssetError("候选原型内容已变化")
+        return image_path, sanitized
+
+    def read_candidate_bytes(
+        self,
+        *,
+        candidate_id: str,
+        profile_id: str,
+        identity_version: int,
+        task_scope: str,
+    ) -> bytes:
+        """在资产锁内校验并复制候选内容，供一次性交付快照使用。"""
+
+        try:
+            with self._locked():
+                _, image_bytes = self._verified_candidate_locked(
+                    candidate_id=candidate_id,
+                    profile_id=profile_id,
+                    identity_version=identity_version,
+                    task_scope=task_scope,
+                )
+                return image_bytes
+        except (OSError, InterprocessLockError) as exc:
+            raise ImageAssetError("无法读取候选原型图片") from exc
+
     def resolve_reference(
         self,
         *,
@@ -536,6 +614,46 @@ class ImageAssetStore:
             height=height,
             path=image_path,
         )
+
+    def resolve_artifact(
+        self,
+        *,
+        artifact_id: str,
+        profile_id: str,
+        identity_version: int,
+        task_scope: str,
+    ) -> Path:
+        """在交给宿主前重新校验短期成图与当前会话绑定。"""
+
+        if not _OPAQUE_ID_RE.fullmatch(str(artifact_id or "")) or not str(
+            artifact_id
+        ).startswith("art_"):
+            raise ImageAssetError("artifact_id 格式无效")
+        artifact_root = self.root / "runtime" / artifact_id
+        image_path = artifact_root / "result.png"
+        manifest_path = artifact_root / "result.json"
+        try:
+            with self._locked():
+                manifest = _load_manifest(manifest_path, _ARTIFACT_KEYS)
+                if (
+                    manifest["artifact_id"] != artifact_id
+                    or manifest["profile_id"] != profile_id
+                    or manifest["identity_version"] != identity_version
+                    or manifest["task_scope_digest"] != _task_digest(task_scope)
+                ):
+                    raise ImageAssetError("当前会话不能接管这个图片")
+                if image_path.is_symlink() or not image_path.is_file():
+                    raise ImageAssetError("当前会话图片不存在")
+                sanitized, width, height = sanitize_png(image_path.read_bytes())
+                if (
+                    sha256(sanitized).hexdigest() != manifest["sha256"]
+                    or width != manifest["width"]
+                    or height != manifest["height"]
+                ):
+                    raise ImageAssetError("当前会话图片内容已变化")
+                return image_path
+        except (OSError, InterprocessLockError) as exc:
+            raise ImageAssetError("无法读取当前会话图片") from exc
 
     def prune_runtime(self, *, max_age: timedelta = timedelta(hours=1)) -> int:
         """清理无人确认投递的过期成图；不触碰候选或固定参考。"""

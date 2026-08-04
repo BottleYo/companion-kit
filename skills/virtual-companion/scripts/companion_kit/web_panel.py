@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import webbrowser
 
 from .host_install import HostInstaller
+from .initializer import default_profile_path
 from .installer import InstallError
 from .profile_store import ProfileConflict, ProfileStore, ProfileStoreError
 from .public_bundle import contains_absolute_path
@@ -22,6 +23,7 @@ _ASSETS = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
 _PROFILE_KEYS = {
+    "host",
     "template_id",
     "display_name",
     "expected_version",
@@ -47,11 +49,12 @@ class CompanionPanelServer(ThreadingHTTPServer):
         self,
         server_address: tuple[str, int],
         *,
-        store: ProfileStore,
+        stores: Mapping[str, ProfileStore],
         installer: HostInstaller,
         nonce: str,
     ) -> None:
-        self.store = store
+        self.stores = dict(stores)
+        self.store = self.stores["codex"]
         self.installer = installer
         self.panel_nonce = nonce
         super().__init__(server_address, CompanionPanelHandler)
@@ -143,13 +146,22 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         return payload
 
     def _state_payload(self) -> dict[str, object]:
-        try:
-            snapshot = self.server.store.read()
-            profile = snapshot.to_dict() if snapshot else None
-            profile_error = None
-        except ProfileStoreError as exc:
-            profile = None
-            profile_error = _safe_error(exc, "本地人格配置无法安全读取")
+        profiles: dict[str, object] = {}
+        profile_errors: dict[str, str | None] = {}
+        for host, store in self.server.stores.items():
+            try:
+                snapshot = store.read()
+                profiles[host] = snapshot.to_dict() if snapshot else None
+                profile_errors[host] = None
+            except ProfileStoreError as exc:
+                profiles[host] = None
+                profile_errors[host] = _safe_error(
+                    exc,
+                    "本地人格配置无法安全读取",
+                )
+
+        profile = profiles["codex"]
+        profile_error = profile_errors["codex"]
 
         hosts: list[dict[str, object]] = []
         for host in _HOSTS:
@@ -165,37 +177,82 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                         "error": _safe_error(exc, "安装方案无法安全生成"),
                     }
                 )
-        return {
-            "version": "0.4.0",
-            "phase": "Codex 已支持原生预览与需单次确认的严格图片模式；其他宿主仍只规划。",
-            "templates": [
-                template.to_dict() for template in self.server.store.templates()
-            ],
-            "profile": profile,
-            "profile_error": profile_error,
-            "photo_modes": {
+        strict_ready = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+        def strict_mode(*, supported: bool = True) -> dict[str, object]:
+            if not supported:
+                return {
+                    "title": "固定形象严格模式",
+                    "status": "尚未接入",
+                    "auth_ready": False,
+                    "description": "当前版本只保留照片计划，不会冒充宿主执行图片调用。",
+                }
+            return {
+                "title": "固定形象严格模式",
+                "status": (
+                    "当前启动环境已检测到 API Key"
+                    if strict_ready
+                    else "当前启动环境未检测到 API Key"
+                ),
+                "auth_ready": strict_ready,
+                "description": (
+                    "固定使用 gpt-image-2 / high；对应工具需继承 Key，每次付费调用前都会单独确认。"
+                ),
+            }
+
+        photo_modes_by_host = {
+            "codex": {
                 "codex_native": {
                     "title": "Codex 原生模式",
                     "status": "无需单独配置",
                     "description": "适合当前任务快速预览；画质由 Codex 管理，不作为 high 严格证明。",
                 },
-                "openai_strict": {
-                    "title": "严格固定形象模式",
-                    "status": (
-                        "已检测到 API Key"
-                        if bool(os.environ.get("OPENAI_API_KEY", "").strip())
-                        else "需要配置 OPENAI_API_KEY"
-                    ),
-                    "auth_ready": bool(
-                        os.environ.get("OPENAI_API_KEY", "").strip()
-                    ),
-                    "description": "固定使用 gpt-image-2 / high；每次付费调用前都会单独确认。",
-                },
-                "reference_configured": bool(
-                    profile
-                    and profile["visual"]["reference_count"] == 1
-                ),
+                "openai_strict": strict_mode(),
             },
+            "openclaw": {
+                "codex_native": {
+                    "title": "OpenClaw 原生快速模式",
+                    "status": "宿主管理",
+                    "description": "请求 gpt-image-2 / high 并由 OpenClaw 返回当前会话；不能作为官方 API 直连证明。",
+                },
+                "openai_strict": strict_mode(),
+            },
+            "hermes": {
+                "codex_native": {
+                    "title": "Hermes 当前会话模式",
+                    "status": "使用严格模式",
+                    "description": "当前没有单独的通用快速模式；成图只交给本次入站会话。",
+                },
+                "openai_strict": strict_mode(),
+            },
+            "claude": {
+                "codex_native": {
+                    "title": "Claude 图片执行",
+                    "status": "仍为规划",
+                    "description": "等待明确的当前任务图片工具与附件契约，不复用其他宿主冒充执行。",
+                },
+                "openai_strict": strict_mode(supported=False),
+            },
+        }
+        for host, modes in photo_modes_by_host.items():
+            host_profile = profiles[host]
+            modes["reference_configured"] = bool(
+                host_profile
+                and host_profile["visual"]["reference_count"] == 1
+            )
+
+        return {
+            "version": "0.5.0",
+            "phase": "Codex、OpenClaw 与 Hermes 已有各自图片路径；Claude 暂保留安全规划。",
+            "templates": [
+                template.to_dict() for template in self.server.store.templates()
+            ],
+            "profile": profile,
+            "profile_error": profile_error,
+            "profiles": profiles,
+            "profile_errors": profile_errors,
+            "photo_modes": photo_modes_by_host["codex"],
+            "photo_modes_by_host": photo_modes_by_host,
             "hosts": hosts,
         }
 
@@ -263,11 +320,15 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             return
         template_id = payload.get("template_id")
         display_name = payload.get("display_name")
+        host = payload.get("host", "codex")
         expected_version = payload.get("expected_version")
         starting_mode = payload.get("starting_mode")
         romance_enabled = payload.get("romance_enabled")
         if not isinstance(template_id, str) or not isinstance(display_name, str):
             self._send_json(400, {"error": "请选择模板并填写称呼"})
+            return
+        if not isinstance(host, str) or host not in _HOSTS:
+            self._send_json(400, {"error": "请选择受支持的宿主"})
             return
         if expected_version is not None and not isinstance(expected_version, str):
             self._send_json(400, {"error": "配置版本无效"})
@@ -280,8 +341,9 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            existed = self.server.store.read() is not None
-            snapshot = self.server.store.save(
+            store = self.server.stores[host]
+            existed = store.read() is not None
+            snapshot = store.save(
                 template_id=template_id,
                 display_name=display_name,
                 expected_version=expected_version,
@@ -299,7 +361,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             return
         self._send_json(
             200 if existed else 201,
-            {"profile": snapshot.to_dict()},
+            {"host": host, "profile": snapshot.to_dict()},
         )
 
     def _install_host(self, payload: dict[str, object]) -> None:
@@ -338,9 +400,25 @@ def create_panel_server(
     if len(token) < 16:
         raise ValueError("面板授权令牌长度不足")
     root = Path(skill_root).resolve()
+    if profile_path is None:
+        profile_paths = {
+            host: default_profile_path(host) for host in _HOSTS
+        }
+    else:
+        codex_path = Path(os.path.abspath(Path(profile_path).expanduser()))
+        companion_root = codex_path.parents[1]
+        profile_paths = {
+            "codex": codex_path,
+            "openclaw": companion_root / "hosts" / "openclaw" / "profiles" / "default.toml",
+            "hermes": companion_root / "hosts" / "hermes" / "profiles" / "default.toml",
+            "claude": companion_root / "hosts" / "claude" / "profiles" / "default.toml",
+        }
     return CompanionPanelServer(
         ("127.0.0.1", port),
-        store=ProfileStore(skill_root=root, profile_path=profile_path),
+        stores={
+            host: ProfileStore(skill_root=root, profile_path=profile_paths[host])
+            for host in _HOSTS
+        },
         installer=HostInstaller(skill_root=root, target_roots=install_roots),
         nonce=token,
     )

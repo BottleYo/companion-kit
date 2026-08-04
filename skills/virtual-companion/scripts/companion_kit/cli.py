@@ -9,6 +9,9 @@ import sys
 from .config import ConfigError, load_profile
 from .codex_photo import CodexPhotoWorkflow, PhotoWorkflowError
 from .contracts import HostCapabilities, HostClass, RequestEnvelope
+from .event_adapter import openclaw_native_preview_request
+from .event_job_store import EventJobContext, EventJobError, EventJobStore
+from .event_photo import EventPhotoError, EventPhotoWorkflow
 from .initializer import (
     BUILTIN_TEMPLATES,
     InitializationError,
@@ -61,6 +64,12 @@ def _parser() -> argparse.ArgumentParser:
 
     initialize = subparsers.add_parser("init", help="用中文向导创建陪伴对象配置")
     initialize.add_argument(
+        "--host",
+        choices=sorted(_HOST_CLASSES),
+        default="codex",
+        help="为哪个工具创建独立配置；默认 codex",
+    )
+    initialize.add_argument(
         "--template",
         choices=[template.id for template in BUILTIN_TEMPLATES],
         help="直接选择模板；不填写时进入交互向导",
@@ -82,6 +91,11 @@ def _parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate", help="校验人格配置")
     validate.add_argument("--config", help="配置路径；默认使用初始化生成的配置")
+    validate.add_argument(
+        "--host",
+        choices=sorted(_HOST_CLASSES),
+        default="codex",
+    )
 
     decide = subparsers.add_parser("decide", help="输出宿主无关的处理决策，不执行生图或发送")
     decide.add_argument("--config", help="配置路径；默认使用初始化生成的配置")
@@ -91,6 +105,69 @@ def _parser() -> argparse.ArgumentParser:
     decide.add_argument("--can-deliver", action="store_true")
     decide.add_argument("--has-target", action="store_true")
     decide.add_argument("--can-attach", action="store_true")
+
+    event_photo = subparsers.add_parser(
+        "event-photo",
+        help="OpenClaw / Hermes 当前会话的图片能力与严格模式",
+    )
+    event_commands = event_photo.add_subparsers(
+        dest="event_photo_command",
+        required=True,
+    )
+
+    event_status = event_commands.add_parser("status", help="查看当前宿主图片能力")
+    event_status.add_argument("--host", choices=("openclaw", "hermes"), required=True)
+    event_status.add_argument("--config", help="配置路径；默认使用宿主独立配置")
+
+    def add_event_context(command: argparse.ArgumentParser) -> None:
+        command.add_argument("--host", choices=("openclaw", "hermes"), required=True)
+        command.add_argument("--instance-scope", required=True)
+        command.add_argument("--conversation-scope", required=True)
+        command.add_argument("--request-event-id", required=True)
+
+    for name, help_text in (
+        ("prepare", "准备一次严格模式调用，只创建单次授权"),
+        ("run", "消费单次授权并调用 OpenAI Image API"),
+    ):
+        command = event_commands.add_parser(name, help=help_text)
+        add_event_context(command)
+        command.add_argument("--config", help="配置路径；默认使用宿主独立配置")
+        command.add_argument("--text", required=True, help="本次明确照片命令")
+        command.add_argument(
+            "--purpose",
+            choices=("prototype", "photo"),
+            required=True,
+        )
+        if name == "run":
+            command.add_argument("--job-id", required=True)
+            command.add_argument("--plan-id", required=True)
+            command.add_argument("--confirm-once", action="store_true")
+
+    event_handoff = event_commands.add_parser(
+        "handoff",
+        help="把已生成图片一次性交给当前会话附件机制",
+    )
+    add_event_context(event_handoff)
+    event_handoff.add_argument("--job-id", required=True)
+    event_handoff.add_argument("--asset-id", required=True)
+
+    event_delivered = event_commands.add_parser(
+        "delivered",
+        help="仅在宿主明确确认媒体接管后完成作业",
+    )
+    add_event_context(event_delivered)
+    event_delivered.add_argument("--job-id", required=True)
+    event_delivered.add_argument("--asset-id", required=True)
+    event_delivered.add_argument("--confirm-receipt", action="store_true")
+
+    event_identity = event_commands.add_parser(
+        "confirm-identity",
+        help="把当前会话候选图固定为该宿主的唯一身份参考",
+    )
+    add_event_context(event_identity)
+    event_identity.add_argument("--config", help="配置路径；默认使用宿主独立配置")
+    event_identity.add_argument("--candidate-id", required=True)
+    event_identity.add_argument("--profile-version", required=True)
 
     photo = subparsers.add_parser("photo", help="Codex 当前任务的图片能力与严格模式")
     photo_commands = photo.add_subparsers(dest="photo_command", required=True)
@@ -177,23 +254,23 @@ def _skill_root() -> Path:
     return candidate
 
 
-def _config_path(explicit: str | None) -> Path:
+def _config_path(explicit: str | None, host: str | None = None) -> Path:
     if explicit:
         return Path(explicit).expanduser()
     configured = os.environ.get("COMPANION_PROFILE", "").strip()
     if configured:
         return Path(configured).expanduser()
-    return default_profile_path()
+    return default_profile_path(host)
 
 
-def _private_data_root() -> Path:
-    return default_profile_path().parents[1] / "private"
+def _private_data_root(host: str | None = None) -> Path:
+    return default_profile_path(host).parents[1] / "private"
 
 
-def _image_assets() -> ImageAssetStore:
+def _image_assets(host: str | None = None) -> ImageAssetStore:
     skill_root = _skill_root()
     assets = ImageAssetStore(
-        _private_data_root() / "images",
+        _private_data_root(host) / "images",
         forbidden_roots=(skill_root.parents[1],),
     )
     if assets.root.exists():
@@ -211,10 +288,27 @@ def _photo_workflow() -> CodexPhotoWorkflow:
     )
 
 
-def _profile_snapshot(explicit: str | None) -> tuple[ProfileStore, ProfileSnapshot]:
+def _event_photo_workflow(host: str) -> EventPhotoWorkflow:
+    private_root = _private_data_root(host)
+    return EventPhotoWorkflow(
+        host=host,
+        authorizations=PhotoAuthorizationStore(
+            private_root / "authorizations",
+            route_id=f"{host}:openai-direct",
+        ),
+        assets=_image_assets(host),
+        jobs=EventJobStore(private_root / "event-jobs"),
+        client=OpenAIImageClient(),
+    )
+
+
+def _profile_snapshot(
+    explicit: str | None,
+    host: str | None = None,
+) -> tuple[ProfileStore, ProfileSnapshot]:
     store = ProfileStore(
         skill_root=_skill_root(),
-        profile_path=_config_path(explicit),
+        profile_path=_config_path(explicit, host),
     )
     snapshot = store.read()
     if snapshot is None:
@@ -234,6 +328,50 @@ def _codex_photo_decision(snapshot: ProfileSnapshot, text: str):
             can_attach_local_artifacts=True,
         ),
     )
+
+
+def _event_photo_decision(snapshot: ProfileSnapshot, host: str, text: str):
+    return CompanionKernel(snapshot.profile).decide(
+        RequestEnvelope(text=text, session_id="current-event", source=host),
+        HostCapabilities(
+            host_class=HostClass.EVENT,
+            can_execute_tasks=True,
+            can_generate_images=True,
+            can_deliver_images=True,
+            has_current_reply_target=True,
+            can_attach_local_artifacts=False,
+        ),
+    )
+
+
+def _event_context(args: argparse.Namespace) -> EventJobContext:
+    return EventJobContext(
+        host=args.host,
+        instance_scope=args.instance_scope,
+        conversation_scope=args.conversation_scope,
+        request_event_id=args.request_event_id,
+    )
+
+
+def _reference_status(
+    snapshot: ProfileSnapshot,
+    host: str | None = None,
+) -> tuple[bool, bool]:
+    reference_configured = len(snapshot.profile.visual.reference_ids) == 1
+    reference_ready = False
+    image_root = _private_data_root(host) / "images"
+    if reference_configured and image_root.exists():
+        try:
+            assets = _image_assets(host)
+            assets.resolve_reference(
+                reference_id=snapshot.profile.visual.reference_ids[0],
+                profile_id=snapshot.profile.id,
+                identity_version=snapshot.profile.visual.identity_version,
+            )
+            reference_ready = True
+        except ImageAssetError:
+            reference_ready = False
+    return reference_configured, reference_ready
 
 
 def _print_templates() -> None:
@@ -277,8 +415,10 @@ def main(argv: list[str] | None = None) -> int:
                 romance_enabled=args.enable_romance,
                 output=args.output,
                 force=args.force,
+                host=args.host,
             )
             payload = {
+                "host": args.host,
                 "template_id": result.template.id,
                 "template_name": result.template.name,
                 "display_name": result.profile.display_name,
@@ -294,16 +434,32 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"称呼：{result.profile.display_name}")
                 print(f"保存位置：{result.output}")
                 print("\n下一步：在新会话中启用 virtual-companion 即可。")
-                print("提示：Codex 可用原生预览；严格固定形象模式需另行配置并逐次确认。")
+                host_hint = {
+                    "codex": (
+                        "提示：Codex 可用原生预览；严格固定形象模式需另行配置并逐次确认。"
+                    ),
+                    "openclaw": (
+                        "提示：OpenClaw 可先使用宿主管理的原生快速模式；"
+                        "固定形象严格模式需另行配置并逐次确认。"
+                    ),
+                    "hermes": (
+                        "提示：Hermes 的固定形象严格模式需在宿主进程配置 "
+                        "OPENAI_API_KEY，并逐次确认。"
+                    ),
+                    "claude": (
+                        "提示：Claude 当前提供安全的照片计划；人格聊天和原有任务能力可直接使用。"
+                    ),
+                }[args.host]
+                print(host_hint)
             return 0
 
         if args.command == "validate":
-            profile = load_profile(_config_path(args.config))
+            profile = load_profile(_config_path(args.config, args.host))
             print(json.dumps({"valid": True, "profile_id": profile.id}, ensure_ascii=False))
             return 0
 
         if args.command == "decide":
-            profile = load_profile(_config_path(args.config))
+            profile = load_profile(_config_path(args.config, args.host))
             capabilities = HostCapabilities(
                 host_class=_HOST_CLASSES[args.host],
                 can_execute_tasks=True,
@@ -319,27 +475,116 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(decision.to_dict(), ensure_ascii=False, indent=2))
             return 0
 
+        if args.command == "event-photo":
+            if args.event_photo_command == "status":
+                _, snapshot = _profile_snapshot(args.config, args.host)
+                reference_configured, reference_ready = _reference_status(
+                    snapshot,
+                    args.host,
+                )
+                payload: dict[str, object] = {
+                    "host": args.host,
+                    "profile_id": snapshot.profile.id,
+                    "identity_version": snapshot.profile.visual.identity_version,
+                    "reference_configured": reference_configured,
+                    "reference_ready": reference_ready,
+                    "strict": {
+                        "setup": "需要当前宿主进程环境中的 OPENAI_API_KEY",
+                        "auth_ready": OpenAIImageClient().auth_ready,
+                        "model": "gpt-image-2",
+                        "quality": "high",
+                        "delivery": "current_reply",
+                    },
+                }
+                if args.host == "openclaw":
+                    preview = openclaw_native_preview_request("通用安全预览")
+                    payload["native_preview"] = {
+                        "setup": "使用宿主 image_generate，无需 Companion Kit API Key",
+                        "proof": preview["proof"],
+                        "model_request": preview["arguments"]["model"],
+                        "quality_request": preview["arguments"]["quality"],
+                        "delivery": preview["delivery"],
+                    }
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+                return 0
+
+            context = _event_context(args)
+            workflow = _event_photo_workflow(args.host)
+            if args.event_photo_command in {"prepare", "run"}:
+                _, snapshot = _profile_snapshot(args.config, args.host)
+                decision = _event_photo_decision(snapshot, args.host, args.text)
+                if args.event_photo_command == "prepare":
+                    result = workflow.prepare(
+                        snapshot=snapshot,
+                        decision=decision,
+                        purpose=args.purpose,
+                        context=context,
+                    )
+                else:
+                    result = workflow.run(
+                        snapshot=snapshot,
+                        decision=decision,
+                        purpose=args.purpose,
+                        context=context,
+                        job_id=args.job_id,
+                        plan_id=args.plan_id,
+                        confirmed=args.confirm_once,
+                    )
+                print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+                return 0
+
+            if args.event_photo_command == "handoff":
+                handoff = workflow.claim_handoff(
+                    job_id=args.job_id,
+                    asset_id=args.asset_id,
+                    context=context,
+                )
+                print(json.dumps(handoff, ensure_ascii=False, indent=2))
+                return 0
+
+            if args.event_photo_command == "delivered":
+                workflow.mark_delivered(
+                    job_id=args.job_id,
+                    asset_id=args.asset_id,
+                    context=context,
+                    receipt_confirmed=args.confirm_receipt,
+                )
+                print(
+                    json.dumps(
+                        {"stage": "delivered", "cleaned": True},
+                        ensure_ascii=False,
+                    )
+                )
+                return 0
+
+            profile_store, snapshot = _profile_snapshot(args.config, args.host)
+            if snapshot.version != args.profile_version:
+                raise ProfileStoreError("当前宿主人格配置已变化，请重新生成并确认候选原型")
+            reference, bound = workflow.confirm_identity(
+                profile_store=profile_store,
+                snapshot=snapshot,
+                candidate_id=args.candidate_id,
+                context=context,
+            )
+            print(
+                json.dumps(
+                    {
+                        "stage": "identity_confirmed",
+                        "host": args.host,
+                        "reference_id": reference.reference_id,
+                        "profile_version": bound.version,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+
         if args.command == "photo":
             if args.photo_command == "status":
                 _, snapshot = _profile_snapshot(args.config)
                 strict_ready = OpenAIImageClient().auth_ready
-                reference_configured = len(
-                    snapshot.profile.visual.reference_ids
-                ) == 1
-                reference_ready = False
-                if reference_configured:
-                    try:
-                        assets = _image_assets()
-                        if not assets.root.exists():
-                            raise ImageAssetError("身份资产目录不存在")
-                        assets.resolve_reference(
-                            reference_id=snapshot.profile.visual.reference_ids[0],
-                            profile_id=snapshot.profile.id,
-                            identity_version=snapshot.profile.visual.identity_version,
-                        )
-                        reference_ready = True
-                    except ImageAssetError:
-                        reference_ready = False
+                reference_configured, reference_ready = _reference_status(snapshot)
                 payload = {
                     "profile_id": snapshot.profile.id,
                     "identity_version": snapshot.profile.visual.identity_version,
@@ -469,6 +714,8 @@ def main(argv: list[str] | None = None) -> int:
         ImageAssetError,
         InitializationError,
         InstallError,
+        EventJobError,
+        EventPhotoError,
         PhotoWorkflowError,
         ProfileStoreError,
     ) as exc:

@@ -14,7 +14,7 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
 
 默认安装到用户级 `.agents/skills/virtual-companion`。仓库中的 `.codex-plugin/plugin.json` 用于插件封装；manifest 本身不代表已注册 marketplace。
 
-`0.4.0` 有两种 Codex 图片模式：
+`0.5.0` 有两种 Codex 图片模式：
 
 - 原生模式：当前任务内使用 Codex 图片能力，无需 Companion Kit API Key；适合快速预览。模型由 Codex 管理，不能由本项目独立证明 `quality=high`，也不承诺跨任务固定身份。
 - 严格模式：当前 Codex 进程环境需要 `OPENAI_API_KEY`，每次真实调用前单独确认；请求固定官方 Image API、`gpt-image-2`、`high`。首次生成候选原型，确认后只保存一张私有参考图，后续使用 `edits`。
@@ -43,7 +43,7 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
 
 默认安装到用户级 `.claude/skills/virtual-companion`。开发态也可以用 `claude --plugin-dir .` 加载插件根目录；开发态命令为 `/companion-kit:virtual-companion`，独立 Skill 为 `/virtual-companion`。
 
-Claude 在 `0.4.0` 仍只输出图片计划。即使环境存在图片工具，也不要复用 Codex 的严格执行命令冒充 Claude 适配器；缺少明确的当前任务附件契约时返回 `image_generation_unavailable`。
+Claude 在 `0.5.0` 仍只输出图片计划。即使环境存在图片工具，也不要复用 Codex 或事件型宿主的严格执行命令冒充 Claude 适配器；缺少明确的当前任务附件契约时返回 `image_generation_unavailable`。
 
 ## 共同规则
 

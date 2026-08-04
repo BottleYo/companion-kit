@@ -175,6 +175,7 @@ class KernelTests(unittest.TestCase):
         stage = transition_photo_job(PhotoJobStage.PLANNED, PhotoJobStage.AUTHORIZED)
         stage = transition_photo_job(stage, PhotoJobStage.GENERATING)
         stage = transition_photo_job(stage, PhotoJobStage.GENERATED)
+        stage = transition_photo_job(stage, PhotoJobStage.DELIVERY_UNKNOWN)
         stage = transition_photo_job(stage, PhotoJobStage.DELIVERED)
         self.assertEqual(stage, PhotoJobStage.DELIVERED)
 
@@ -194,6 +195,12 @@ class KernelTests(unittest.TestCase):
             PhotoJobStage.CANCELLED,
         )
         self.assertEqual(generated_cancelled, PhotoJobStage.CANCELLED)
+
+        with self.assertRaises(InvalidTransition):
+            transition_photo_job(
+                PhotoJobStage.DELIVERY_UNKNOWN,
+                PhotoJobStage.GENERATED,
+            )
 
 
 if __name__ == "__main__":

@@ -15,6 +15,8 @@ const token = fragmentToken || storedToken;
 const elements = {
   authError: document.querySelector("#authError"),
   templateGrid: document.querySelector("#templateGrid"),
+  profileHost: document.querySelector("#profileHost"),
+  hostChoiceHint: document.querySelector("#hostChoiceHint"),
   displayName: document.querySelector("#displayName"),
   startingMode: document.querySelector("#startingMode"),
   romanceEnabled: document.querySelector("#romanceEnabled"),
@@ -28,6 +30,11 @@ const elements = {
   previewStyle: document.querySelector("#previewStyle"),
   previewRelationship: document.querySelector("#previewRelationship"),
   avatarLetter: document.querySelector("#avatarLetter"),
+  photoHostLabel: document.querySelector("#photoHostLabel"),
+  photoModeHeading: document.querySelector("#photoModeHeading"),
+  photoIntro: document.querySelector("#photoIntro"),
+  photoModes: document.querySelector("#photoModes"),
+  photoHelp: document.querySelector("#photoHelp"),
   nativeModeTitle: document.querySelector("#nativeModeTitle"),
   nativeModeStatus: document.querySelector("#nativeModeStatus"),
   nativeModeDescription: document.querySelector("#nativeModeDescription"),
@@ -44,6 +51,7 @@ const elements = {
 };
 
 let state = null;
+let selectedHost = "codex";
 let selectedTemplate = null;
 let profilePreview = null;
 let currentVersion = null;
@@ -103,9 +111,25 @@ function createTemplateCard(template) {
   return button;
 }
 
+const hostNames = {
+  codex: "Codex",
+  openclaw: "OpenClaw",
+  hermes: "Hermes",
+  claude: "Claude",
+};
+
+function currentProfile() {
+  return state?.profiles?.[selectedHost] ?? (selectedHost === "codex" ? state?.profile : null);
+}
+
+function currentProfileError() {
+  return state?.profile_errors?.[selectedHost] ?? (selectedHost === "codex" ? state?.profile_error : null);
+}
+
 function selectTemplate(templateId, useDefaultName = false) {
   selectedTemplate = state.templates.find((template) => template.id === templateId) || state.templates[0];
-  profilePreview = state.profile?.id === selectedTemplate.id ? state.profile : null;
+  const profile = currentProfile();
+  profilePreview = profile?.id === selectedTemplate.id ? profile : null;
   if (profilePreview) {
     elements.displayName.value = profilePreview.display_name;
   } else if (useDefaultName || !elements.displayName.value.trim()) {
@@ -140,11 +164,13 @@ function renderPreview() {
 }
 
 function updateSaveHint() {
-  if (state.profile_error) {
-    setText(elements.saveHint, state.profile_error);
-  } else if (state.profile && selectedTemplate?.id !== state.profile.id) {
+  const profile = currentProfile();
+  const profileError = currentProfileError();
+  if (profileError) {
+    setText(elements.saveHint, profileError);
+  } else if (profile && selectedTemplate?.id !== profile.id) {
     setText(elements.saveHint, "切换风格并保存后，会用新模板替换现有人格的高级字段。");
-  } else if (state.profile) {
+  } else if (profile) {
     setText(elements.saveHint, "修改称呼会保留现有高级字段，并检查版本避免覆盖其他窗口的新内容。");
   } else {
     setText(elements.saveHint, "配置只保存在这台电脑的私有目录。");
@@ -192,9 +218,26 @@ function renderHosts() {
 }
 
 function renderPhotoModes() {
-  const nativeMode = state.photo_modes?.codex_native;
-  const strictMode = state.photo_modes?.openai_strict;
+  const modes = state.photo_modes_by_host?.[selectedHost] || state.photo_modes;
+  const nativeMode = modes?.codex_native;
+  const strictMode = modes?.openai_strict;
   if (!nativeMode || !strictMode) return;
+  setText(elements.photoHostLabel, `${hostNames[selectedHost]} 图片能力`);
+  const heading = {
+    codex: "两种模式，按需选择",
+    openclaw: "两种模式，按需选择",
+    hermes: "固定形象，配置一次即可",
+    claude: "当前先保留安全规划",
+  };
+  const intro = {
+    codex: "平时可用 Codex 原生能力快速预览；需要固定人物和明确 high 画质时，再选择严格模式。",
+    openclaw: "可以先用宿主原生能力快速试拍；想固定人物形象时，再配置严格模式。",
+    hermes: "当前通过严格模式固定人物并生成照片，成图只交给本次入站会话。",
+    claude: "当前版本不会冒充图片工具执行生图；人格聊天和原有问题解决能力不受影响。",
+  };
+  setText(elements.photoModeHeading, heading[selectedHost]);
+  setText(elements.photoIntro, intro[selectedHost]);
+  elements.photoModes.setAttribute("aria-label", `${hostNames[selectedHost]} 图片模式`);
   setText(elements.nativeModeTitle, nativeMode.title);
   setText(elements.nativeModeStatus, nativeMode.status);
   setText(elements.nativeModeDescription, nativeMode.description);
@@ -203,8 +246,48 @@ function renderPhotoModes() {
   setText(elements.strictModeDescription, strictMode.description);
   setText(
     elements.referenceStatus,
-    state.photo_modes.reference_configured ? "配置已绑定固定人物参考" : "尚未固定人物原型",
+    modes.reference_configured ? "配置已绑定固定人物参考" : "尚未固定人物原型",
   );
+  const help = {
+    codex: "在当前任务里说“照片：画面描述”即可。严格模式会先确认本次计费与数据去向。",
+    openclaw: "可先用原生模式快速试拍；需要固定形象时使用严格模式，结果只回当前入站会话。",
+    hermes: "严格模式生成后只通过当前回复交给 Hermes Gateway，不填写或猜测联系人。",
+    claude: "当前只生成安全的照片计划，等宿主附件契约明确后再开放执行。",
+  };
+  setText(elements.photoHelp, help[selectedHost]);
+}
+
+function activateHost(host) {
+  selectedHost = Object.hasOwn(hostNames, host) ? host : "codex";
+  elements.profileHost.value = selectedHost;
+  const profile = currentProfile();
+  currentVersion = profile?.version || null;
+  const matchingTemplate = state.templates.find((template) => template.id === profile?.id);
+  selectedTemplate = matchingTemplate
+    || (profile ? {
+      id: profile.id,
+      name: "自定义配置",
+      default_name: profile.display_name,
+      traits: profile.traits,
+      speaking_style: profile.speaking_style,
+      appearance: profile.visual.appearance,
+      default_style: profile.visual.default_style,
+    } : null)
+    || state.templates.find((template) => template.recommended)
+    || state.templates[0];
+  profilePreview = profile || null;
+  elements.displayName.value = profile?.display_name || selectedTemplate.default_name;
+  elements.startingMode.value = profile?.relationship?.starting_mode || "natural";
+  elements.romanceEnabled.checked = profile?.relationship?.romance_enabled === true;
+  setText(elements.profileStatus, profile ? (matchingTemplate ? "已配置" : "自定义配置") : "尚未配置");
+  setText(
+    elements.hostChoiceHint,
+    `${hostNames[selectedHost]} 使用独立配置，不会覆盖其他工具里的陪伴对象。`,
+  );
+  updateSaveHint();
+  renderTemplates();
+  renderPreview();
+  renderPhotoModes();
 }
 
 function openInstallDialog(host) {
@@ -228,36 +311,14 @@ async function loadState() {
     return;
   }
 
-  const profile = state.profile;
-  currentVersion = profile?.version || null;
-  const matchingTemplate = state.templates.find((template) => template.id === profile?.id);
-  selectedTemplate = matchingTemplate
-    || (profile ? {
-      id: profile.id,
-      name: "自定义配置",
-      default_name: profile.display_name,
-      traits: profile.traits,
-      speaking_style: profile.speaking_style,
-      appearance: profile.visual.appearance,
-      default_style: profile.visual.default_style,
-    } : null)
-    || state.templates.find((template) => template.recommended)
-    || state.templates[0];
-  profilePreview = profile || null;
-  elements.displayName.value = profile?.display_name || selectedTemplate.default_name;
-  elements.startingMode.value = profile?.relationship?.starting_mode || "natural";
-  elements.romanceEnabled.checked = profile?.relationship?.romance_enabled === true;
-  setText(elements.profileStatus, profile ? (matchingTemplate ? "已配置" : "自定义配置") : "尚未配置");
-  updateSaveHint();
-  renderTemplates();
-  renderPreview();
-  renderPhotoModes();
+  activateHost(selectedHost);
   renderHosts();
 }
 
 elements.displayName.addEventListener("input", renderPreview);
 elements.startingMode.addEventListener("change", renderPreview);
 elements.romanceEnabled.addEventListener("change", renderPreview);
+elements.profileHost.addEventListener("change", () => activateHost(elements.profileHost.value));
 
 elements.saveProfile.addEventListener("click", async () => {
   const displayName = elements.displayName.value.trim();
@@ -270,6 +331,7 @@ elements.saveProfile.addEventListener("click", async () => {
   setText(elements.saveProfile, "保存中…");
   try {
     const body = {
+      host: selectedHost,
       template_id: selectedTemplate.id,
       display_name: displayName,
       starting_mode: elements.startingMode.value,
@@ -281,7 +343,8 @@ elements.saveProfile.addEventListener("click", async () => {
       body: JSON.stringify(body),
     });
     currentVersion = payload.profile.version;
-    state.profile = payload.profile;
+    state.profiles[selectedHost] = payload.profile;
+    if (selectedHost === "codex") state.profile = payload.profile;
     profilePreview = payload.profile;
     setText(elements.profileStatus, "已保存");
     updateSaveHint();

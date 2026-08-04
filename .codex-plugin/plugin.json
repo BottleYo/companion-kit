@@ -1,7 +1,7 @@
 {
   "name": "companion-kit",
-  "version": "0.4.0",
-  "description": "用本地面板管理虚拟陪伴人格，并在 Codex 当前任务安全生成固定人物照片。",
+  "version": "0.5.0",
+  "description": "用本地面板分别管理虚拟陪伴人格，并安全生成固定人物照片。",
   "author": {
     "name": "Companion Kit contributors"
   },
@@ -9,10 +9,10 @@
   "interface": {
     "displayName": "虚拟陪伴对象",
     "shortDescription": "本地人格聊天与固定人物照片",
-    "longDescription": "用本地控制面和结构化配置提供陪伴式表达；普通任务继续由 Codex 完成，只有明确照片命令才进入图片流程。原生模式零配置预览，严格模式经单次确认后固定使用 gpt-image-2/high。",
+    "longDescription": "用本地控制面和独立配置提供陪伴式表达；普通任务继续由原工具完成，只有明确照片命令才进入图片流程。支持 Codex、OpenClaw 与 Hermes 的不同图片路径，严格模式经单次确认后固定使用 gpt-image-2/high。",
     "developerName": "Companion Kit contributors",
     "category": "Productivity",
-    "capabilities": ["Local setup", "Chat", "Codex image generation"],
+    "capabilities": ["Local setup", "Chat", "Current-session image generation"],
     "defaultPrompt": "使用 $virtual-companion；如果还没有默认配置，先问我是快速初始化还是打开本地管理面板。保留原有工具能力，只在我明确要求时进入当前任务照片流程。"
   }
 }

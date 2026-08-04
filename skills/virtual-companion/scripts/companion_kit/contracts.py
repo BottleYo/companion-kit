@@ -21,6 +21,7 @@ class PhotoJobStage(str, Enum):
     AUTHORIZED = "authorized"
     GENERATING = "generating"
     GENERATED = "generated"
+    DELIVERY_UNKNOWN = "delivery_unknown"
     DELIVERED = "delivered"
     CANCELLED = "cancelled"
     FAILED = "failed"

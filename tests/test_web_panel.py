@@ -90,9 +90,14 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.4.0")
+                self.assertEqual(payload["version"], "0.5.0")
                 self.assertIn("codex_native", payload["photo_modes"])
                 self.assertIn("openai_strict", payload["photo_modes"])
+                self.assertEqual(
+                    set(payload["profiles"]),
+                    {"openclaw", "hermes", "codex", "claude"},
+                )
+                self.assertIn("openclaw", payload["photo_modes_by_host"])
                 self.assertNotIn("Bearer ", json.dumps(payload))
 
     def test_api_requires_nonce_and_rejects_unexpected_host(self) -> None:
@@ -163,6 +168,66 @@ class WebPanelTests(unittest.TestCase):
                 )
                 self.assertTrue(
                     created_payload["profile"]["relationship"]["romance_enabled"]
+                )
+
+    def test_each_host_profile_is_saved_and_viewed_independently(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                origin = f"http://127.0.0.1:{server.server_port}"
+                for host, template, name in (
+                    ("openclaw", "sunny_friend", "小晴"),
+                    ("hermes", "calm_partner", "阿序"),
+                ):
+                    response, _ = request(
+                        server,
+                        "POST",
+                        "/api/profile",
+                        token="test-panel-token",
+                        origin=origin,
+                        body={
+                            "host": host,
+                            "template_id": template,
+                            "display_name": name,
+                        },
+                    )
+                    self.assertEqual(response.status, 201)
+
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/state",
+                    token="test-panel-token",
+                )
+                payload = json.loads(body)
+
+                self.assertEqual(response.status, 200)
+                self.assertEqual(
+                    payload["profiles"]["openclaw"]["display_name"],
+                    "小晴",
+                )
+                self.assertEqual(
+                    payload["profiles"]["hermes"]["display_name"],
+                    "阿序",
+                )
+                self.assertIsNone(payload["profiles"]["codex"])
+                self.assertTrue(
+                    (
+                        root
+                        / "hosts"
+                        / "openclaw"
+                        / "profiles"
+                        / "default.toml"
+                    ).is_file()
+                )
+                self.assertTrue(
+                    (
+                        root
+                        / "hosts"
+                        / "hermes"
+                        / "profiles"
+                        / "default.toml"
+                    ).is_file()
                 )
 
     def test_write_api_rejects_arbitrary_paths_force_and_bad_origin(self) -> None:

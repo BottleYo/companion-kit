@@ -181,6 +181,31 @@ h3 {
   gap: 14px;
 }
 
+.host-choice {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.55fr) minmax(260px, 1fr);
+  align-items: center;
+  gap: 8px 16px;
+  margin: -6px 0 24px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f7fcf9;
+  padding: 16px;
+}
+
+.host-choice label {
+  font-weight: 760;
+}
+
+.host-choice select {
+  width: 100%;
+}
+
+.host-choice .hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .template-card {
   min-height: 150px;
   border: 1px solid var(--line);
@@ -638,6 +663,14 @@ select:focus-visible {
 
   .relationship-settings {
     grid-template-columns: 1fr;
+  }
+
+  .host-choice {
+    grid-template-columns: 1fr;
+  }
+
+  .host-choice .hint {
+    grid-column: auto;
   }
 
   .host-card {

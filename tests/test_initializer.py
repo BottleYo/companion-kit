@@ -56,6 +56,23 @@ class InitializerTests(unittest.TestCase):
                     Path(os.path.abspath(tmp)) / "profiles" / "default.toml",
                 )
 
+    def test_event_hosts_get_independent_default_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.abspath(tmp))
+            with patch.dict(os.environ, {"COMPANION_HOME": tmp}):
+                self.assertEqual(
+                    default_profile_path("openclaw"),
+                    root / "hosts" / "openclaw" / "profiles" / "default.toml",
+                )
+                self.assertEqual(
+                    default_profile_path("hermes"),
+                    root / "hosts" / "hermes" / "profiles" / "default.toml",
+                )
+                self.assertNotEqual(
+                    default_profile_path("openclaw"),
+                    default_profile_path("hermes"),
+                )
+
     def test_initialize_profile_uses_template_and_custom_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp).resolve() / "my-companion.toml"

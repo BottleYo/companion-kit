@@ -62,15 +62,23 @@ BUILTIN_TEMPLATES = (
     ),
 )
 
+_PROFILE_HOSTS = {"openclaw", "hermes", "codex", "claude"}
 
-def default_profile_path() -> Path:
+
+def default_profile_path(host: str | None = None) -> Path:
+    normalized_host = str(host or "codex").strip().lower()
+    if normalized_host not in _PROFILE_HOSTS:
+        raise InitializationError(f"不支持的宿主：{host}")
     configured_home = os.environ.get("COMPANION_HOME", "").strip()
     root = (
         Path(configured_home).expanduser()
         if configured_home
         else Path.home() / ".companion-kit"
     )
-    return Path(os.path.abspath(root)) / "profiles" / "default.toml"
+    root = Path(os.path.abspath(root))
+    if normalized_host == "codex":
+        return root / "profiles" / "default.toml"
+    return root / "hosts" / normalized_host / "profiles" / "default.toml"
 
 
 def safe_profile_path(raw_output: str | Path) -> Path:
@@ -238,6 +246,7 @@ def initialize_profile(
     romance_enabled: bool | None = None,
     output: str | Path | None = None,
     force: bool = False,
+    host: str | None = None,
 ) -> InitializationResult:
     root = Path(skill_root).resolve()
     template = template_by_id(template_id)
@@ -260,7 +269,11 @@ def initialize_profile(
     )
 
     uses_default_output = output is None
-    raw_output = Path(output).expanduser() if output is not None else default_profile_path()
+    raw_output = (
+        Path(output).expanduser()
+        if output is not None
+        else default_profile_path(host)
+    )
     validated, output_path = save_profile_document(
         profile=profile,
         output=raw_output,

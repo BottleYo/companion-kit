@@ -25,6 +25,9 @@ _PLAN_ID_RE = re.compile(r"^plan_[a-f0-9]{24}$")
 _PROFILE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 _REFERENCE_ID_RE = re.compile(r"^ref_[a-f0-9]{16,32}$")
 _VERSION_RE = re.compile(r"^[a-f0-9]{64}$")
+_ROUTE_ID_RE = re.compile(
+    r"^(?:openai-direct|(?:codex|openclaw|hermes):openai-direct)$"
+)
 _STORED_KEYS = {
     "schema_version",
     "plan_id",
@@ -172,12 +175,16 @@ class PhotoAuthorizationStore:
         *,
         clock: Callable[[], datetime] | None = None,
         ttl: timedelta = timedelta(minutes=10),
+        route_id: str = "openai-direct",
     ) -> None:
         if ttl <= timedelta(0) or ttl > timedelta(hours=1):
             raise AuthorizationError("图片授权有效期必须在 1 小时以内")
+        if not _ROUTE_ID_RE.fullmatch(str(route_id or "")):
+            raise AuthorizationError("图片授权路由无效")
         self.root = _safe_path(root)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._ttl = ttl
+        self._route_id = route_id
         self._lock_path = self.root / ".authorizations.lock"
 
     def _now(self) -> datetime:
@@ -278,7 +285,7 @@ class PhotoAuthorizationStore:
             "reference_id": reference_id,
             "purpose": purpose,
             "operation": operation,
-            "route_id": "openai-direct",
+            "route_id": self._route_id,
             "model": GPT_IMAGE_2,
             "quality": BASELINE_QUALITY,
             "created_at": created_at.isoformat(),
@@ -335,7 +342,7 @@ class PhotoAuthorizationStore:
             "reference_id": reference_id,
             "purpose": purpose,
             "operation": operation,
-            "route_id": "openai-direct",
+            "route_id": self._route_id,
             "model": GPT_IMAGE_2,
             "quality": BASELINE_QUALITY,
         }
@@ -375,3 +382,22 @@ class PhotoAuthorizationStore:
             created_at=created_at,
             expires_at=expires_at,
         )
+
+    def discard(self, plan_id: str) -> bool:
+        """在后续本地建档失败时撤销尚未消费的授权。"""
+
+        path = self._path(plan_id)
+        try:
+            with self._locked():
+                if path.is_symlink():
+                    raise AuthorizationError("图片授权路径无效")
+                if not path.exists():
+                    return False
+                if not path.is_file():
+                    raise AuthorizationError("图片授权记录无效")
+                path.unlink()
+                return True
+        except AuthorizationError:
+            raise
+        except (OSError, InterprocessLockError) as exc:
+            raise AuthorizationError(f"无法撤销单次图片授权：{exc}") from exc

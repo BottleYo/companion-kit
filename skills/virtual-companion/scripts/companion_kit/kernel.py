@@ -26,9 +26,12 @@ _PHOTO_TRANSITIONS = {
         PhotoJobStage.FAILED,
     },
     PhotoJobStage.GENERATED: {
-        PhotoJobStage.DELIVERED,
+        PhotoJobStage.DELIVERY_UNKNOWN,
         PhotoJobStage.CANCELLED,
         PhotoJobStage.FAILED,
+    },
+    PhotoJobStage.DELIVERY_UNKNOWN: {
+        PhotoJobStage.DELIVERED,
     },
     PhotoJobStage.DELIVERED: set(),
     PhotoJobStage.CANCELLED: set(),
