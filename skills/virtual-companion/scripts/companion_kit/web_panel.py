@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import secrets
 from typing import Mapping
@@ -165,13 +166,36 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                     }
                 )
         return {
-            "version": "0.3.0",
-            "phase": "本阶段支持初始化、查看、管理与安装；尚不生图或发送消息。",
+            "version": "0.4.0",
+            "phase": "Codex 已支持原生预览与需单次确认的严格图片模式；其他宿主仍只规划。",
             "templates": [
                 template.to_dict() for template in self.server.store.templates()
             ],
             "profile": profile,
             "profile_error": profile_error,
+            "photo_modes": {
+                "codex_native": {
+                    "title": "Codex 原生模式",
+                    "status": "无需单独配置",
+                    "description": "适合当前任务快速预览；画质由 Codex 管理，不作为 high 严格证明。",
+                },
+                "openai_strict": {
+                    "title": "严格固定形象模式",
+                    "status": (
+                        "已检测到 API Key"
+                        if bool(os.environ.get("OPENAI_API_KEY", "").strip())
+                        else "需要配置 OPENAI_API_KEY"
+                    ),
+                    "auth_ready": bool(
+                        os.environ.get("OPENAI_API_KEY", "").strip()
+                    ),
+                    "description": "固定使用 gpt-image-2 / high；每次付费调用前都会单独确认。",
+                },
+                "reference_configured": bool(
+                    profile
+                    and profile["visual"]["reference_count"] == 1
+                ),
+            },
             "hosts": hosts,
         }
 

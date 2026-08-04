@@ -28,6 +28,13 @@ const elements = {
   previewStyle: document.querySelector("#previewStyle"),
   previewRelationship: document.querySelector("#previewRelationship"),
   avatarLetter: document.querySelector("#avatarLetter"),
+  nativeModeTitle: document.querySelector("#nativeModeTitle"),
+  nativeModeStatus: document.querySelector("#nativeModeStatus"),
+  nativeModeDescription: document.querySelector("#nativeModeDescription"),
+  strictModeTitle: document.querySelector("#strictModeTitle"),
+  strictModeStatus: document.querySelector("#strictModeStatus"),
+  strictModeDescription: document.querySelector("#strictModeDescription"),
+  referenceStatus: document.querySelector("#referenceStatus"),
   hostGrid: document.querySelector("#hostGrid"),
   installDialog: document.querySelector("#installDialog"),
   dialogTitle: document.querySelector("#dialogTitle"),
@@ -184,6 +191,22 @@ function renderHosts() {
   elements.hostGrid.replaceChildren(...state.hosts.map(createHostCard));
 }
 
+function renderPhotoModes() {
+  const nativeMode = state.photo_modes?.codex_native;
+  const strictMode = state.photo_modes?.openai_strict;
+  if (!nativeMode || !strictMode) return;
+  setText(elements.nativeModeTitle, nativeMode.title);
+  setText(elements.nativeModeStatus, nativeMode.status);
+  setText(elements.nativeModeDescription, nativeMode.description);
+  setText(elements.strictModeTitle, strictMode.title);
+  setText(elements.strictModeStatus, strictMode.status);
+  setText(elements.strictModeDescription, strictMode.description);
+  setText(
+    elements.referenceStatus,
+    state.photo_modes.reference_configured ? "配置已绑定固定人物参考" : "尚未固定人物原型",
+  );
+}
+
 function openInstallDialog(host) {
   pendingHost = host.host;
   setText(elements.dialogTitle, `安装到 ${host.name}`);
@@ -228,6 +251,7 @@ async function loadState() {
   updateSaveHint();
   renderTemplates();
   renderPreview();
+  renderPhotoModes();
   renderHosts();
 }
 

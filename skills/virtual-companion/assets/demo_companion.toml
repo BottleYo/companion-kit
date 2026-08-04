@@ -15,7 +15,7 @@ boundaries = [
 identity_anchor = "fictional-adult-demo-v1"
 identity_version = 1
 appearance = "虚构成年人物；自然神态；外观细节由安装者的本地 VisualProfile 后续替换。"
-default_style = "自然手机摄影感，真实光线，避免文字、水印和品牌标志。"
+default_style = "自然生活摄影，真实环境光，避免文字、水印和品牌标志。"
 reference_ids = []
 
 [relationship]

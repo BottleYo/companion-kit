@@ -15,7 +15,7 @@ boundaries = [
 identity_anchor = "fictional-sunny-friend-v1"
 identity_version = 1
 appearance = "虚构成年女性，约23岁；黑色高马尾，深棕色圆眼，健康小麦肤色；常穿明黄色运动外套与白色T恤；始终保持相同五官、发型和年龄特征。"
-default_style = "明亮自然的手机抓拍，清爽户外光线，动作有活力，避免文字、水印和品牌标志。"
+default_style = "明亮自然的生活抓拍，清爽户外光线，动作有活力，避免文字、水印和品牌标志。"
 reference_ids = []
 
 [relationship]

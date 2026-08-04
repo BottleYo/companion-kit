@@ -99,14 +99,23 @@
         </article>
 
         <article class="panel future-card">
-          <p class="step">下一阶段</p>
-          <h2>创建人物原型图</h2>
-          <p>可以让 AI 生成候选形象，也可以上传已授权参考图。确认后，后续照片会固定使用同一人物。</p>
-          <div class="future-actions" aria-label="尚未开放的原型图功能">
-            <button type="button" disabled>帮我生成形象</button>
-            <button type="button" disabled>上传参考图</button>
+          <p class="step">Codex 图片能力</p>
+          <h2>两种模式，按需选择</h2>
+          <p>平时可用 Codex 原生能力快速预览；需要固定人物和明确 high 画质时，再选择严格模式。</p>
+          <div class="photo-modes" aria-label="Codex 图片模式">
+            <div>
+              <strong id="nativeModeTitle">Codex 原生模式</strong>
+              <span id="nativeModeStatus">读取中</span>
+              <small id="nativeModeDescription"></small>
+            </div>
+            <div>
+              <strong id="strictModeTitle">严格固定形象模式</strong>
+              <span id="strictModeStatus">读取中</span>
+              <small id="strictModeDescription"></small>
+            </div>
           </div>
-          <span class="coming-soon">当前版本尚不调用生图接口</span>
+          <span id="referenceStatus" class="coming-soon">尚未固定人物原型</span>
+          <p class="photo-help">使用时只需在 Codex 当前任务里说“照片：画面描述”。严格模式首次会先让你确认计费与数据去向。</p>
         </article>
       </section>
 
@@ -124,7 +133,7 @@
 
       <section class="privacy-strip" aria-label="隐私说明">
         <span aria-hidden="true">●</span>
-        <p><strong>隐私边界：</strong>不读取现有 SOUL、USER、记忆、聊天记录或照片目录；本阶段也不会联网生图或发送消息。</p>
+        <p><strong>隐私边界：</strong>不读取现有 SOUL、USER、记忆、聊天记录或照片目录；严格模式只有在你单次确认后才把本次提示和已确认参考图发送给 OpenAI，且不会外发到 IM。</p>
       </section>
     </main>
 

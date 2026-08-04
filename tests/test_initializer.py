@@ -45,6 +45,8 @@ class InitializerTests(unittest.TestCase):
                 self.assertTrue(profile.display_name)
                 self.assertIn("虚构成年", profile.visual.appearance)
                 self.assertEqual(profile.visual.reference_ids, ())
+                self.assertNotIn("手机", profile.visual.default_style)
+                self.assertNotIn("自拍", profile.visual.default_style)
 
     def test_default_profile_path_uses_companion_home(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

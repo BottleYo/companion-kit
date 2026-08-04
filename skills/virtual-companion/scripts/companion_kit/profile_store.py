@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 import os
 from pathlib import Path
+import re
 from threading import Lock
 
 from .config import ConfigError, PersonaProfile, load_profile
@@ -27,6 +28,9 @@ class ProfileStoreError(ValueError):
 
 class ProfileConflict(ProfileStoreError):
     """人格配置已变化，需要刷新后再保存。"""
+
+
+_REFERENCE_ID_RE = re.compile(r"^ref_[a-f0-9]{16,32}$")
 
 
 @dataclass(frozen=True)
@@ -172,6 +176,58 @@ class ProfileStore:
                         starting_mode=starting_mode,
                         romance_enabled=romance_enabled,
                     )
+            except (OSError, InitializationError, InterprocessLockError) as exc:
+                raise ProfileStoreError(str(exc)) from exc
+
+    def bind_reference(
+        self,
+        *,
+        reference_id: str,
+        identity_version: int,
+        expected_version: str,
+    ) -> ProfileSnapshot:
+        """把一张已确认的私有资产绑定为当前身份版本的唯一参考。"""
+
+        if not _REFERENCE_ID_RE.fullmatch(str(reference_id or "")):
+            raise ProfileStoreError("reference_id 格式无效")
+        if (
+            not isinstance(identity_version, int)
+            or isinstance(identity_version, bool)
+            or identity_version < 1
+        ):
+            raise ProfileStoreError("identity_version 必须是正整数")
+        with self._write_lock:
+            try:
+                self.profile_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                if os.name != "nt":
+                    self.profile_path.parent.chmod(0o700)
+                safe_profile_path(self.profile_path)
+                safe_profile_path(self._lock_path)
+                with exclusive_file_lock(self._lock_path):
+                    current = self.read()
+                    if current is None:
+                        raise ProfileConflict("人格配置不存在，请先完成初始化")
+                    if current.version != expected_version:
+                        raise ProfileConflict("人格配置已变化，请重新确认候选原型")
+                    if current.profile.visual.identity_version != identity_version:
+                        raise ProfileConflict("身份版本已变化，请重新生成候选原型")
+                    updated = replace(
+                        current.profile,
+                        visual=replace(
+                            current.profile.visual,
+                            reference_ids=(reference_id,),
+                        ),
+                    )
+                    save_profile_document(
+                        profile=updated,
+                        output=self.profile_path,
+                        force=True,
+                        private_parent=True,
+                    )
+                    saved = self.read()
+                    if saved is None:
+                        raise ProfileStoreError("人格配置保存后未找到")
+                    return saved
             except (OSError, InitializationError, InterprocessLockError) as exc:
                 raise ProfileStoreError(str(exc)) from exc
 

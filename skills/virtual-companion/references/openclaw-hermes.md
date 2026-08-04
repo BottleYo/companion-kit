@@ -1,6 +1,6 @@
 # OpenClaw / Hermes 适配
 
-这两类宿主属于“事件型宿主”：入站事件同时提供当前会话和回复目标。`0.3.0` 只规划；未来生成的图片也只能返回这个目标。
+这两类宿主属于“事件型宿主”：入站事件同时提供当前会话和回复目标。`0.4.0` 仍只规划；未来生成的图片也只能返回这个目标。
 
 ## OpenClaw
 
@@ -12,7 +12,7 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
   --apply
 ```
 
-安装器会调用 OpenClaw 原生 Skill 安装机制，不猜测内部目录。`0.3.0` 的能力映射只用于判断计划是否可落地，不授权或执行真实调用：
+安装器会调用 OpenClaw 原生 Skill 安装机制，不猜测内部目录。`0.4.0` 的能力映射只用于判断计划是否可落地，不授权或执行真实调用：
 
 - 图片生成能力探测：宿主 CLI 提供 `openclaw infer image generate` 时可声明可用，但本版不调用。
 - 当前会话投递能力探测：只确认当前消息上下文存在；不要在 Skill 内保存联系人。
@@ -30,7 +30,7 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
   --apply
 ```
 
-`0.3.0` 的能力映射同样只做探测：
+`0.4.0` 的能力映射同样只做探测：
 
 - 图片生成：只有 `image_generate` 工具实际可用时，才声明 `--can-generate`；本版不调用该工具。
 - 消息平台提供当前入站目标且支持图片附件时，才声明 `--can-deliver --has-target`。

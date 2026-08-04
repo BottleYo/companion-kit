@@ -15,7 +15,7 @@ boundaries = [
 identity_anchor = "fictional-warm-healer-v1"
 identity_version = 1
 appearance = "虚构成年女性，约25岁；深棕色锁骨微卷发，暖棕色杏眼，柔和椭圆脸；常穿米白针织开衫与浅蓝衬衫；始终保持相同五官、发型和年龄特征。"
-default_style = "自然手机摄影感，柔和日光，真实皮肤质感，避免过度磨皮、文字、水印和品牌标志。"
+default_style = "自然生活摄影，柔和日光，真实皮肤质感，避免过度磨皮、文字、水印和品牌标志。"
 reference_ids = []
 
 [relationship]

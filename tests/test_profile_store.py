@@ -15,6 +15,32 @@ SKILL_ROOT = PROJECT_ROOT / "skills" / "virtual-companion"
 
 
 class ProfileStoreTests(unittest.TestCase):
+    def test_bind_reference_preserves_profile_and_keeps_one_identity_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            profile_path = Path(tmp).resolve() / "profiles" / "default.toml"
+            store = ProfileStore(skill_root=SKILL_ROOT, profile_path=profile_path)
+            created = store.save(
+                template_id="warm_healer",
+                display_name="小禾",
+                expected_version=None,
+                starting_mode="familiar",
+                romance_enabled=True,
+            )
+
+            bound = store.bind_reference(
+                reference_id="ref_1234567890abcdef",
+                identity_version=1,
+                expected_version=created.version,
+            )
+
+            self.assertEqual(bound.profile.display_name, "小禾")
+            self.assertEqual(bound.profile.relationship.starting_mode, "familiar")
+            self.assertTrue(bound.profile.relationship.romance_enabled)
+            self.assertEqual(
+                bound.profile.visual.reference_ids,
+                ("ref_1234567890abcdef",),
+            )
+
     def test_catalog_exposes_only_generic_template_previews(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ProfileStore(

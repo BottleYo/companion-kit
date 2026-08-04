@@ -17,8 +17,8 @@ def route(
     requested_model: str = "gpt-image-2",
     upstream_model: str = "gpt-image-2",
     requested_quality: str = "high",
-    reported_model: str | None = "gpt-image-2",
-    reported_quality: str | None = "high",
+    reported_model: str | None = None,
+    reported_quality: str | None = None,
     reference_edit: bool = True,
     explicitly_enabled: bool = False,
 ) -> ImageProviderRoute:
@@ -83,7 +83,7 @@ class ImageProviderTests(unittest.TestCase):
         api = route(
             "openai-api",
             kind=ProviderRouteKind.OPENAI_API,
-            proof=ProviderProof.VERIFIED,
+            proof=ProviderProof.DIRECT_REQUEST,
         )
 
         selection = select_image_provider([api, native], expected_host="codex")
@@ -92,7 +92,7 @@ class ImageProviderTests(unittest.TestCase):
         self.assertEqual(selection.route.id, "codex-native")
         self.assertEqual(selection.reason, "selected_host_native")
 
-    def test_strict_mode_requires_verified_receipt(self) -> None:
+    def test_strict_mode_accepts_fixed_direct_openai_request_without_fake_receipt(self) -> None:
         native = route(
             "codex-native",
             kind=ProviderRouteKind.HOST_NATIVE,
@@ -103,7 +103,7 @@ class ImageProviderTests(unittest.TestCase):
         api = route(
             "openai-api",
             kind=ProviderRouteKind.OPENAI_API,
-            proof=ProviderProof.VERIFIED,
+            proof=ProviderProof.DIRECT_REQUEST,
         )
 
         selection = select_image_provider(
@@ -113,15 +113,42 @@ class ImageProviderTests(unittest.TestCase):
         )
 
         self.assertEqual(selection.route.id, "openai-api")
-        self.assertEqual(selection.reason, "selected_verified_api")
+        self.assertEqual(selection.reason, "selected_direct_openai_api")
 
-    def test_hermes_virtual_tier_can_prove_real_upstream_model(self) -> None:
+    def test_receipt_proof_requires_values_actually_reported_by_provider(self) -> None:
+        missing_receipt = route(
+            "reported-api",
+            kind=ProviderRouteKind.OPENAI_API,
+            proof=ProviderProof.RECEIPT_VERIFIED,
+        )
+        real_receipt = route(
+            "reported-api",
+            kind=ProviderRouteKind.OPENAI_API,
+            proof=ProviderProof.RECEIPT_VERIFIED,
+            reported_model="gpt-image-2",
+            reported_quality="high",
+        )
+
+        self.assertFalse(
+            select_image_provider(
+                [missing_receipt],
+                expected_host="codex",
+                strict_consistency=True,
+            ).enabled
+        )
+        self.assertTrue(
+            select_image_provider(
+                [real_receipt],
+                expected_host="codex",
+                strict_consistency=True,
+            ).enabled
+        )
+
+    def test_direct_openai_route_is_host_independent_but_keeps_fixed_model(self) -> None:
         hermes = route(
             "hermes-openai",
             kind=ProviderRouteKind.OPENAI_API,
-            proof=ProviderProof.VERIFIED,
-            requested_model="gpt-image-2-high",
-            upstream_model="gpt-image-2",
+            proof=ProviderProof.DIRECT_REQUEST,
             host="hermes",
         )
 
@@ -138,15 +165,14 @@ class ImageProviderTests(unittest.TestCase):
         wrong_model = route(
             "other-model",
             kind=ProviderRouteKind.OPENAI_API,
-            proof=ProviderProof.VERIFIED,
+            proof=ProviderProof.DIRECT_REQUEST,
             requested_model="other-image-model",
             upstream_model="other-image-model",
-            reported_model="other-image-model",
         )
         no_edit = route(
             "no-edit",
             kind=ProviderRouteKind.OPENAI_API,
-            proof=ProviderProof.VERIFIED,
+            proof=ProviderProof.DIRECT_REQUEST,
             reference_edit=False,
         )
 

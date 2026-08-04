@@ -23,7 +23,8 @@ class ProviderRouteKind(str, Enum):
 
 
 class ProviderProof(str, Enum):
-    VERIFIED = "verified"
+    DIRECT_REQUEST = "direct_request"
+    RECEIPT_VERIFIED = "receipt_verified"
     HOST_MANAGED = "host_managed"
     UNVERIFIED = "unverified"
 
@@ -70,18 +71,41 @@ class ImageProviderRoute:
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ProviderContractError(f"{label} 不能为空")
-        if self.kind is ProviderRouteKind.COMPATIBLE and self.proof is not ProviderProof.UNVERIFIED:
-            raise ProviderContractError("兼容网关必须标记为 unverified")
-        if self.proof is ProviderProof.UNVERIFIED and self.kind is not ProviderRouteKind.COMPATIBLE:
-            raise ProviderContractError("非兼容网关不能伪装成未验证上游")
+        expected_proofs = {
+            ProviderRouteKind.HOST_NATIVE: {ProviderProof.HOST_MANAGED},
+            ProviderRouteKind.OPENAI_API: {
+                ProviderProof.DIRECT_REQUEST,
+                ProviderProof.RECEIPT_VERIFIED,
+            },
+            ProviderRouteKind.COMPATIBLE: {ProviderProof.UNVERIFIED},
+        }
+        if self.proof not in expected_proofs[self.kind]:
+            raise ProviderContractError("Provider kind 与 proof 不匹配")
+        if self.proof is ProviderProof.DIRECT_REQUEST:
+            if self.reported_model is not None or self.reported_quality is not None:
+                raise ProviderContractError("请求侧证明不能伪造 Provider 回显字段")
 
     @property
     def receipt_proves_baseline(self) -> bool:
         return (
-            self.proof is ProviderProof.VERIFIED
+            self.proof is ProviderProof.RECEIPT_VERIFIED
             and self.reported_model == GPT_IMAGE_2
             and self.reported_quality == BASELINE_QUALITY
         )
+
+    @property
+    def direct_request_proves_baseline(self) -> bool:
+        return (
+            self.kind is ProviderRouteKind.OPENAI_API
+            and self.proof is ProviderProof.DIRECT_REQUEST
+            and self.requested_model == GPT_IMAGE_2
+            and self.upstream_model == GPT_IMAGE_2
+            and self.requested_quality == BASELINE_QUALITY
+        )
+
+    @property
+    def baseline_proven(self) -> bool:
+        return self.direct_request_proves_baseline or self.receipt_proves_baseline
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -138,9 +162,12 @@ def _eligible(
     if not _baseline_shape(route):
         return False
     if strict_consistency:
-        return route.receipt_proves_baseline
-    if route.proof is ProviderProof.VERIFIED:
-        return route.receipt_proves_baseline
+        return route.baseline_proven
+    if route.proof in {
+        ProviderProof.DIRECT_REQUEST,
+        ProviderProof.RECEIPT_VERIFIED,
+    }:
+        return route.baseline_proven
     if route.proof is ProviderProof.HOST_MANAGED:
         return route.kind is ProviderRouteKind.HOST_NATIVE
     return (
@@ -180,7 +207,11 @@ def select_image_provider(
     if selected.kind is ProviderRouteKind.HOST_NATIVE:
         reason = "selected_host_native"
     elif selected.kind is ProviderRouteKind.OPENAI_API:
-        reason = "selected_verified_api"
+        reason = (
+            "selected_direct_openai_api"
+            if selected.proof is ProviderProof.DIRECT_REQUEST
+            else "selected_receipt_verified_api"
+        )
     else:
         reason = "selected_explicit_compatible_gateway"
     return ProviderSelection(selected, reason)

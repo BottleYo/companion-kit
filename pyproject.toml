@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portable-companion-kit"
-version = "0.3.0"
-description = "宿主无关的虚拟陪伴人格与图片决策核心"
+version = "0.4.0"
+description = "宿主无关的虚拟陪伴人格核心与 Codex 固定人物图片闭环"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

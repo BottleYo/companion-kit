@@ -96,6 +96,7 @@ class InstallerTests(unittest.TestCase):
 
             installed_companionctl = result.destination / "scripts" / "companionctl.py"
             environment = dict(os.environ)
+            environment.pop("OPENAI_API_KEY", None)
             environment["COMPANION_HOME"] = str(Path(tmp).resolve() / "companion-home")
             environment["PYTHONDONTWRITEBYTECODE"] = "1"
             initialized = subprocess.run(
@@ -129,6 +130,23 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(validated.returncode, 0, validated.stderr)
             self.assertTrue(json.loads(validated.stdout)["valid"])
+
+            photo_status = subprocess.run(
+                [
+                    sys.executable,
+                    str(installed_companionctl),
+                    "photo",
+                    "status",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(photo_status.returncode, 0, photo_status.stderr)
+            status_payload = json.loads(photo_status.stdout)
+            self.assertIn("codex_native", status_payload["modes"])
+            self.assertFalse(status_payload["modes"]["openai_strict"]["auth_ready"])
 
     def test_rejects_media_in_public_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

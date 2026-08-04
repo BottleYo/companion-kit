@@ -78,6 +78,23 @@ class WebPanelTests(unittest.TestCase):
                 self.assertIn("default-src 'self'", response.getheader("Content-Security-Policy"))
                 self.assertEqual(response.getheader("Cache-Control"), "no-store")
 
+    def test_state_explains_codex_photo_modes_without_exposing_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with running_panel(Path(tmp).resolve()) as (server, _):
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/state",
+                    token="test-panel-token",
+                )
+                payload = json.loads(body)
+
+                self.assertEqual(response.status, 200)
+                self.assertEqual(payload["version"], "0.4.0")
+                self.assertIn("codex_native", payload["photo_modes"])
+                self.assertIn("openai_strict", payload["photo_modes"])
+                self.assertNotIn("Bearer ", json.dumps(payload))
+
     def test_api_requires_nonce_and_rejects_unexpected_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with running_panel(Path(tmp).resolve()) as (server, _):
