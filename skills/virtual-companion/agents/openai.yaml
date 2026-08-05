@@ -1,4 +1,6 @@
 interface:
   display_name: "虚拟陪伴对象"
-  short_description: "按宿主管理陪伴人格，并在当前会话安全生成固定人物照片"
-  default_prompt: "使用 $virtual-companion；若没有当前宿主配置，先问我是快速初始化还是打开本地管理面板。保留原有工具能力，只有我明确要求时才进入照片流程。"
+  short_description: "可选的配置诊断与兼容入口"
+  default_prompt: "检查我的 Companion Kit 配置和当前宿主能力，不要替普通聊天重复加载人格。"
+policy:
+  allow_implicit_invocation: false

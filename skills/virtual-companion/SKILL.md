@@ -1,9 +1,11 @@
 ---
 name: virtual-companion
-description: 在 OpenClaw、Hermes、Codex 或 Claude Code 中启用本地虚拟陪伴人格，同时保留宿主原有的问题解决与工具能力；当用户要求与陪伴对象聊天、加载 companion profile、生成或规划固定人物照片，或使用“/photo”“/companion-photo”“照片：”命令时使用。Codex、OpenClaw 与 Hermes 具有彼此独立的图片路径；Claude 当前安全规划。
+description: Companion Kit 的显式诊断和兼容入口。仅当用户明确调用 $virtual-companion、要求检查 Companion Kit 配置或图片能力，或在 OpenClaw、Hermes、Claude 中显式使用兼容照片命令时启用。Codex 普通聊天由 Plugin Runtime 自动提供人格，不应隐式调用本 Skill。
 ---
 
 # 虚拟陪伴对象
+
+Codex 的日常聊天不经过本 Skill。它只用于显式配置诊断、Codex 内置图片状态检查，以及其他宿主的严格图片流程调试和现阶段兼容。不要因为普通闲聊或自然照片请求自动宣布或加载本 Skill。
 
 把人格当作表达层，不要把它变成新的任务执行器。普通问题继续使用宿主原有工具和能力解决；人格约束不得覆盖安全策略、事实或用户当前指令。
 
@@ -20,7 +22,7 @@ description: 在 OpenClaw、Hermes、Codex 或 Claude Code 中启用本地虚拟
 
 - 普通聊天或任务：继续完成原任务，只采用配置中的表达风格。
 - `/photo <画面>`、`/companion-photo <画面>` 或 `照片：<画面>`：视为明确照片请求。
-- 只有“照片”而没有画面说明：自然询问本次场景、景别或动作。
+- 用户自然地说“拍张照片给我”但没有指定画面：在当前关系边界内自行选择普通生活场景，不把提示词工作交给用户。只有裸 `/photo` 诊断命令才询问缺少的参数。
 - 否定、讨论、代码、插件、测试、方案或转述中的图片词：不要生图。
 
 先用本地命令取得结构化决策：
@@ -34,80 +36,29 @@ python3 scripts/companionctl.py decide \
 
 能力参数只能按当前宿主真实能力加入：`--can-generate`、`--can-deliver`、`--has-target`、`--can-attach`。不要虚构能力。用户给出其他配置时，额外加入 `--config <配置路径>`。
 
-## 图片模式选择
+## 图片路径选择
 
-Codex 先运行 `python3 scripts/companionctl.py photo status`。OpenClaw 或 Hermes 先运行 `python3 scripts/companionctl.py event-photo status --host <当前宿主>`。四个宿主彼此独立，不因为另一个宿主已配置就假定当前宿主可用。
+Codex 只使用当前 Codex 提供的内置图片生成能力。OpenClaw 或 Hermes 才运行 `python3 scripts/companionctl.py event-photo status --host <当前宿主>` 检查各自的图片路径。四个宿主彼此独立。
 
-用户第一次只说了照片画面、当前宿主同时具有快速和严格模式、且尚无固定参考时，只问一个短问题：“想先快速试拍，还是把长相固定下来？固定形象会单独确认 API 费用。”不要一次抛出模型、端点、参数和命令。已有有效固定参考时默认进入严格模式的单次确认；严格模式未就绪时再提供当前宿主真实存在的选择，绝不自动降级。
+## Codex 图片能力
 
-## Codex 图片模式
+Codex 中不存在“快速模式”和“API 严格模式”二选一。所有人物原型、日常照片和参考图编辑都走 Codex 内置图片生成：
 
-### 原生模式：默认轻便选择
+- 直接调用 Codex 当前提供的图片生成能力，内置能力使用 `gpt-image-2`。
+- 图片计入用户现有 Codex 方案的使用量或额度，不要求 Companion Kit API Key。
+- 绝不检查或索要 `OPENAI_API_KEY`，不要求用户选择 Provider，也不做额外 API 付费确认。
+- 用户没有指定场景时，根据人格、关系边界和当前对话自行选择一个普通生活场景。
+- 用户已经指定场景时直接生成，不再追问服装、动作、模式或模型参数。
+- 当前任务里已有用户确认的候选时，后续生成继续使用同一候选作为视觉参考。
+- 已有 Companion Kit 私有参考图时，Runtime 会要求 Codex 图片能力带上这张唯一参考，不把路径发给用户；是否确实进入图片工具的参考参数，需要用真实 Codex 端到端验收。
 
-用户明确说“快速试拍”“直接拍”或选择原生模式时，使用当前 Codex 提供的原生图片生成能力：
+用户第一次需要人物照片而尚未固定脸时，用自然的一两句话提供三个选择：上传有权使用的成年人物或虚构形象参考、简单描述后由 Codex 生成、或根据 Persona 自己决定。候选生成后先展示；用户不喜欢就继续在当前任务调整。只有用户明确确认，才在后台暂存并提升为唯一脸部身份参考。
 
-- 无需单独配置 API Key；图片计入 Codex 当前方案的使用量或额度。
-- 原生能力使用 `gpt-image-2`，但公开接口不能让 Companion Kit 独立证明 `quality=high`。
-- 只把结果返回当前 Codex 任务；不保存为跨任务固定身份，不外发到 IM。
-- 不宣称已建立长期一致人物，也不把原生模式伪装成严格模式。
+候选暂存必须使用 Runtime 提供的 `identity stage-native` 命令。输入不仅要位于 Codex 的 `generated_images`，还必须出现在当前任务图片工具刚返回的短期回执中；任务、路径、内容哈希不一致，回执过期或已消费时都要拒绝。确认必须使用同一任务作用域、候选 ID 和 Persona 版本。以后新任务由 Runtime 注入同一私有参考图要求；路径不可用时停止生图，不得纯文字生成另一张脸。
 
-当前 Codex 没有图片工具时，说明此模式不可用，并提供严格模式配置说明；不要使用占位图或不明图片网站。
+固定的只是脸部身份和面部几何。发型、表情、妆容、服饰、姿势、场景和光线要根据本次需求变化。成图明显像另一个人时，使用同一参考重试或停止，不把漂移结果当作该人物发送。
 
-### 严格模式：固定人物与 high 请求
-
-用户明确选择“固定形象”“严格模式”“high”或跨任务人物一致性时，使用以下流程。严格模式固定官方 OpenAI Image API、`gpt-image-2`、`high`，不允许兼容网关、模型降级或自动重试。
-
-若 `photo status` 显示未配置，只说明需要在当前宿主进程环境中设置 `OPENAI_API_KEY`。不要索要用户在聊天里粘贴密钥，也不要把密钥写入配置、面板或项目。
-
-首次尚无参考图时：
-
-1. 用用户的画面要求准备一张虚构成年人候选原型：
-
-   ```bash
-   python3 scripts/companionctl.py photo prepare \
-     --purpose prototype \
-     --task-scope '<当前任务内稳定的不透明值>' \
-     --text '<用户原文>'
-   ```
-
-2. 用自然语言说明一次：本次会按 OpenAI API 用量计费，会发送本次图片提示，只处理不模仿真人的虚构成年人。询问是否继续。照片请求本身不等于付费确认。
-3. 只有用户明确确认本次调用后，使用同一 `task-scope`、完全相同的原文和返回的 `plan_id` 运行：
-
-   ```bash
-   python3 scripts/companionctl.py photo run \
-     --purpose prototype \
-     --task-scope '<同一值>' \
-     --plan-id '<plan_id>' \
-     --text '<完全相同的用户原文>' \
-     --confirm-once
-   ```
-
-4. 只在当前任务展示返回的候选图片。自然询问用户是否喜欢这个形象，不展示内部提示词、路由、路径、耗时或任务状态。
-5. 用户明确确认候选后，用 `photo run` 返回的 `candidate_id` 与 `profile_version` 固定身份：
-
-   ```bash
-   python3 scripts/companionctl.py identity confirm \
-     --candidate-id '<candidate_id>' \
-     --profile-version '<profile_version>' \
-     --task-scope '<同一值>'
-   ```
-
-用户不喜欢候选时，不固定它。再次生成属于新的付费调用，必须重新 `prepare` 并重新确认；新候选会替换旧候选，不形成图库。
-
-已有固定参考图时：
-
-1. 以 `--purpose photo` 运行 `photo prepare`。
-2. 用自然语言取得本次单次付费确认。
-3. 以 `--purpose photo` 和 `--confirm-once` 运行 `photo run`；它会用已确认参考图走 Image API `edits`。
-4. 只把 `artifact_path` 附加到当前 Codex 任务。宿主确认附件已接管后，运行：
-
-   ```bash
-   python3 scripts/companionctl.py photo delivered \
-     --artifact-id '<artifact_id>' \
-     --task-scope '<同一值>'
-   ```
-
-生成成功不等于投递成功。附件失败时不要报告已发送；也不要把本地路径转发到外部聊天。
+当前 Codex 没有图片工具或方案额度已用完时，只自然说明本次暂时拍不了。不要提供 API Key 作为默认解决方案，不要使用占位图或不明图片网站。
 
 ## 保持陪伴感
 
@@ -134,13 +85,13 @@ Codex 先运行 `python3 scripts/companionctl.py photo status`。OpenClaw 或 He
 - OpenClaw 或 Hermes：读取 `references/openclaw-hermes.md`。
 - Codex 或 Claude：读取 `references/codex-claude.md`。
 
-Claude 在 `0.5.0` 仍只输出照片计划。缺少已证明的当前任务图片与附件契约时，不得复用 Codex 或事件型宿主执行器冒充 Claude 能力。
+Claude 适配仍停留在 `0.6.0-dev.1`，只输出照片计划。本轮 Codex 改动不得改变它的执行语义；缺少已证明的当前任务图片与附件契约时，不得复用 Codex 或事件型宿主执行器冒充 Claude 能力。
 
 ## 隐私边界
 
 - 不把 API key、token、密码、聊天历史、长期记忆或真实文件路径写入人格配置。
 - 不把用户参考图、生成图片或聊天样本放进 Skill/插件发行包。
-- 严格模式只接受 Companion Kit 当次生成、用户确认的虚构成年人原型；本版本不导入任意外部照片或真人身份。
+- Codex 可使用用户在当前任务提供且有权使用的成年人物或虚构形象参考，但必须先由内置图片能力生成或转换为候选 PNG，再经用户确认；不得扫描本机照片或在未获授权时复刻真人。
 - 本地只保留当前身份版本的一张参考图；候选只有一个槽位，普通成图是待投递的短期文件，不形成图片历史。
 - 每个宿主默认使用独立人格、授权、参考图、短期成图和事件作业目录；不要自动跨宿主复制或共享。
 - 不默认持久化对话，不自动跨宿主共享关系或图片状态。

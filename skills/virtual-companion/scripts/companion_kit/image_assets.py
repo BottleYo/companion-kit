@@ -110,6 +110,12 @@ def _safe_absolute_path(raw: str | Path) -> Path:
     return path
 
 
+def _codex_generated_images_root() -> Path:
+    configured = os.environ.get("CODEX_HOME", "").strip()
+    codex_home = Path(configured).expanduser() if configured else Path.home() / ".codex"
+    return _safe_absolute_path(codex_home / "generated_images")
+
+
 def _private_directory(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     _safe_absolute_path(path)
@@ -331,7 +337,10 @@ class ImageAssetStore:
         identity_version: int,
         image_bytes: bytes,
         task_scope: str,
+        source: str = "openai_image_api",
     ) -> CandidateAsset:
+        if source not in {"openai_image_api", "codex_native"}:
+            raise ImageAssetError("候选原型来源无效")
         sanitized, width, height = sanitize_png(image_bytes)
         digest = _task_digest(task_scope)
         candidate_id = f"cand_{uuid.uuid4().hex[:24]}"
@@ -347,7 +356,7 @@ class ImageAssetStore:
             "mime_type": "image/png",
             "width": width,
             "height": height,
-            "source": "openai_image_api",
+            "source": source,
             "created_at": self._created_at(),
             "task_scope_digest": digest,
         }
@@ -368,6 +377,54 @@ class ImageAssetStore:
             height=height,
             path=image_path,
         )
+
+    def store_candidate_file(
+        self,
+        *,
+        profile_id: str,
+        identity_version: int,
+        source_path: str | Path,
+        task_scope: str,
+    ) -> CandidateAsset:
+        """导入 Codex 当前任务已经真实生成或取得的一张 PNG 候选图。"""
+
+        path = _safe_absolute_path(source_path)
+        generated_root = _codex_generated_images_root()
+        try:
+            path.relative_to(generated_root)
+        except ValueError as exc:
+            raise ImageAssetError(
+                "候选原型必须来自 Codex 当前任务的 generated_images 目录"
+            ) from exc
+        try:
+            mode = path.lstat().st_mode
+        except OSError as exc:
+            raise ImageAssetError("候选原型文件不存在或无法读取") from exc
+        if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+            raise ImageAssetError("候选原型必须是普通图片文件，不能是符号链接")
+        try:
+            size = path.stat().st_size
+            if size < 1 or size > _MAX_IMAGE_BYTES:
+                raise ImageAssetError("候选原型文件大小超出安全范围")
+            image_bytes = path.read_bytes()
+        except ImageAssetError:
+            raise
+        except OSError as exc:
+            raise ImageAssetError("候选原型文件无法读取") from exc
+        try:
+            return self.store_candidate(
+                profile_id=profile_id,
+                identity_version=identity_version,
+                image_bytes=image_bytes,
+                task_scope=task_scope,
+                source="codex_native",
+            )
+        except ImageAssetError as exc:
+            if not image_bytes.startswith(_PNG_SIGNATURE):
+                raise ImageAssetError(
+                    "候选原型需要是 PNG；其他格式请先由 Codex 内置图片能力转换为候选 PNG"
+                ) from exc
+            raise
 
     def confirm_candidate(
         self,

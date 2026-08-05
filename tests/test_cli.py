@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from companion_kit.cli import _local_port, main
+from companion_kit.codex_image_receipts import CodexImageReceiptStore
 from companion_kit.initializer import initialize_profile
 from companion_kit.openai_image_api import ImageApiResult
 from companion_kit.profile_store import ProfileStore
@@ -20,6 +21,85 @@ SKILL_ROOT = PROJECT_ROOT / "skills" / "virtual-companion"
 
 
 class CliTests(unittest.TestCase):
+    def test_codex_native_identity_can_be_staged_and_confirmed_without_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            codex_home = root / "codex-home"
+            candidate_path = codex_home / "generated_images" / "candidate.png"
+            candidate_path.parent.mkdir(parents=True)
+            candidate_path.write_bytes(tiny_png())
+            with patch.dict(
+                os.environ,
+                {
+                    "COMPANION_HOME": str(root / "home"),
+                    "CODEX_HOME": str(codex_home),
+                },
+                clear=True,
+            ):
+                CodexImageReceiptStore().record(
+                    session_id="codex-task-one",
+                    tool_use_id="image-tool-one",
+                    paths=(candidate_path,),
+                )
+                self.assertEqual(
+                    main(
+                        [
+                            "init",
+                            "--host",
+                            "codex",
+                            "--template",
+                            "warm_healer",
+                            "--display-name",
+                            "小禾",
+                            "--json",
+                        ]
+                    ),
+                    0,
+                )
+                staged_output = io.StringIO()
+                with redirect_stdout(staged_output):
+                    staged_code = main(
+                        [
+                            "identity",
+                            "stage-native",
+                            "--file",
+                            str(candidate_path),
+                            "--task-scope",
+                            "codex-task-one",
+                        ]
+                    )
+                staged = json.loads(staged_output.getvalue())
+
+                confirmed_output = io.StringIO()
+                with redirect_stdout(confirmed_output):
+                    confirmed_code = main(
+                        [
+                            "identity",
+                            "confirm",
+                            "--candidate-id",
+                            staged["candidate_id"],
+                            "--task-scope",
+                            "codex-task-one",
+                            "--profile-version",
+                            staged["profile_version"],
+                        ]
+                    )
+                confirmed = json.loads(confirmed_output.getvalue())
+
+                self.assertEqual(staged_code, 0)
+                self.assertEqual(confirmed_code, 0)
+                self.assertEqual(confirmed["stage"], "identity_confirmed")
+                self.assertFalse(confirmed["api_key_required"])
+
+                status_output = io.StringIO()
+                with redirect_stdout(status_output):
+                    status_code = main(["photo", "status"])
+                status = json.loads(status_output.getvalue())
+                self.assertEqual(status_code, 0)
+                self.assertTrue(status["reference_configured"])
+                self.assertTrue(status["reference_ready"])
+                self.assertEqual(status["cross_task_reference_bridge"], "ready")
+
     def test_local_port_accepts_auto_and_rejects_out_of_range_values(self) -> None:
         self.assertEqual(_local_port("0"), 0)
         self.assertEqual(_local_port("65535"), 65535)
@@ -31,7 +111,7 @@ class CliTests(unittest.TestCase):
         with self.assertRaises(argparse.ArgumentTypeError):
             _local_port("not-a-port")
 
-    def test_photo_status_explains_native_and_strict_modes_without_key(self) -> None:
+    def test_photo_status_uses_only_codex_builtin_images_without_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             profile_path = root / "profiles" / "default.toml"
@@ -52,11 +132,17 @@ class CliTests(unittest.TestCase):
                 payload["modes"]["codex_native"]["setup"],
                 "无需单独配置",
             )
-            self.assertFalse(payload["modes"]["openai_strict"]["auth_ready"])
-            self.assertEqual(payload["modes"]["openai_strict"]["quality"], "high")
+            self.assertEqual(set(payload["modes"]), {"codex_native"})
+            self.assertFalse(payload["api_key_required"])
+            self.assertFalse(payload["provider_choice_required"])
+            self.assertEqual(
+                payload["cross_task_reference_bridge"],
+                "waiting_for_identity_confirmation",
+            )
+            self.assertNotIn("OPENAI_API_KEY", output.getvalue())
             self.assertFalse((root / "private").exists())
 
-    def test_prepare_without_api_key_fails_before_creating_paid_plan(self) -> None:
+    def test_legacy_codex_api_prepare_is_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             profile_path = root / "profiles" / "default.toml"
@@ -87,7 +173,8 @@ class CliTests(unittest.TestCase):
                 )
 
             self.assertEqual(code, 2)
-            self.assertIn("OPENAI_API_KEY", error.getvalue())
+            self.assertIn("Codex 已停用独立 API 生图入口", error.getvalue())
+            self.assertNotIn("OPENAI_API_KEY", error.getvalue())
             self.assertEqual(list(root.rglob("plan_*.json")), [])
 
     def test_photo_status_does_not_call_missing_reference_ready(self) -> None:
@@ -118,6 +205,10 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(payload["reference_configured"])
             self.assertFalse(payload["reference_ready"])
+            self.assertEqual(
+                payload["cross_task_reference_bridge"],
+                "reference_unavailable",
+            )
 
     def test_event_host_init_and_status_use_independent_home(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

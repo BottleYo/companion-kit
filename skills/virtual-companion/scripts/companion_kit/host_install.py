@@ -8,7 +8,7 @@ import subprocess
 from typing import Callable, Mapping, Sequence
 
 from .installer import InstallError, install_skill
-from .public_bundle import inspect_public_tree
+from .public_bundle import inspect_public_tree, inspect_release_layout
 
 
 _HOST_NAMES = {
@@ -17,6 +17,8 @@ _HOST_NAMES = {
     "codex": "Codex",
     "claude": "Claude",
 }
+_CODEX_MARKETPLACE_NAME = "companion-kit-preview"
+_CODEX_PLUGIN_NAME = "companion-kit"
 
 
 @dataclass(frozen=True)
@@ -31,22 +33,41 @@ class HostInstallPlan:
     existing: bool | None
     available: bool
     apply_required: bool = True
+    bootstrap_argv: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
-        command = list(self.argv)
-        if command:
-            command[0] = Path(command[0]).name
-            for index, value in enumerate(command):
-                if value == str(self.source):
-                    command[index] = "<内置 Skill>"
+        def public_command(argv: tuple[str, ...]) -> list[str]:
+            command = list(argv)
+            if command:
+                command[0] = Path(command[0]).name
+                for index, value in enumerate(command):
+                    if value == str(self.source):
+                        command[index] = (
+                            "<内置 Plugin>"
+                            if self.method == "codex_plugin"
+                            else "<内置 Skill>"
+                        )
+            return command
+
+        command = public_command(self.argv)
+        commands = tuple(
+            public_command(argv)
+            for argv in (self.bootstrap_argv, self.argv)
+            if argv
+        )
         return {
             "host": self.host,
             "name": self.name,
             "family": self.family,
             "method": self.method,
-            "source": "bundled_skill",
+            "source": (
+                "bundled_plugin"
+                if self.method == "codex_plugin"
+                else "bundled_skill"
+            ),
             "destination": str(self.destination) if self.destination else None,
             "command": command,
+            "commands": commands,
             "existing": self.existing,
             "available": self.available,
             "apply_required": self.apply_required,
@@ -91,6 +112,10 @@ class HostInstaller:
         self.runner = runner
         self.forbidden_text = tuple(forbidden_text)
 
+    @property
+    def plugin_root(self) -> Path:
+        return self.skill_root.parents[1]
+
     def _target_root(self, host: str) -> Path:
         if host in self.target_roots:
             return self.target_roots[host].resolve()
@@ -132,6 +157,41 @@ class HostInstaller:
                 argv=argv,
                 existing=None,
                 available=executable is not None,
+            )
+
+        if normalized == "codex" and normalized not in self.target_roots:
+            executable = self.which("codex")
+            plugin_root = self.plugin_root
+            marketplace = plugin_root / ".agents" / "plugins" / "marketplace.json"
+            available = (
+                executable is not None
+                and (plugin_root / ".codex-plugin" / "plugin.json").is_file()
+                and marketplace.is_file()
+            )
+            return HostInstallPlan(
+                host=normalized,
+                name=_HOST_NAMES[normalized],
+                family="desktop",
+                method="codex_plugin",
+                source=plugin_root,
+                destination=None,
+                bootstrap_argv=(
+                    executable or "codex",
+                    "plugin",
+                    "marketplace",
+                    "add",
+                    str(plugin_root),
+                    "--json",
+                ),
+                argv=(
+                    executable or "codex",
+                    "plugin",
+                    "add",
+                    f"{_CODEX_PLUGIN_NAME}@{_CODEX_MARKETPLACE_NAME}",
+                    "--json",
+                ),
+                existing=None,
+                available=available,
             )
 
         target_root = self._target_root(normalized)
@@ -180,6 +240,50 @@ class HostInstaller:
                     f"OpenClaw 安装失败（退出码 {completed.returncode}）"
                 )
             return HostInstallResult(plan=plan, applied=True)
+
+        if plan.method == "codex_plugin":
+            if not plan.available:
+                raise InstallError("未找到可用的 Codex Plugin 环境，请先更新或修复 Codex")
+            failures = inspect_release_layout(plan.source)
+            failures.extend(
+                inspect_public_tree(
+                    plan.source,
+                    forbidden_text=self.forbidden_text,
+                )
+            )
+            if failures:
+                raise InstallError(failures[0])
+            for label, argv in (
+                ("注册本地来源", plan.bootstrap_argv),
+                ("安装 Plugin", plan.argv),
+            ):
+                try:
+                    completed = self.runner(
+                        list(argv),
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                except (OSError, subprocess.SubprocessError) as exc:
+                    raise InstallError(f"Codex {label}无法执行：{exc}") from exc
+                if completed.returncode != 0:
+                    raise InstallError(
+                        f"Codex {label}失败（退出码 {completed.returncode}）"
+                    )
+            applied_plan = HostInstallPlan(
+                host=plan.host,
+                name=plan.name,
+                family=plan.family,
+                method=plan.method,
+                source=plan.source,
+                destination=None,
+                argv=plan.argv,
+                existing=True,
+                available=True,
+                bootstrap_argv=plan.bootstrap_argv,
+            )
+            return HostInstallResult(plan=applied_plan, applied=True)
 
         result = install_skill(
             host=plan.host,

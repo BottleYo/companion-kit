@@ -76,6 +76,7 @@ _SECRET_VALUE_PATTERNS = (
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
 )
 _RELEASE_ROOT_ALLOWLIST = {
+    ".agents",
     ".claude-plugin",
     ".codex-plugin",
     ".gitignore",
@@ -84,6 +85,7 @@ _RELEASE_ROOT_ALLOWLIST = {
     "README.md",
     "assets",
     "docs",
+    "hooks",
     "pyproject.toml",
     "scripts",
     "skills",

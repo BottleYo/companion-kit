@@ -23,16 +23,17 @@ _ASSETS = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
 _PROFILE_KEYS = {
-    "host",
     "template_id",
+    "description",
     "display_name",
+    "overrides",
     "expected_version",
     "starting_mode",
     "romance_enabled",
 }
+_DRAFT_KEYS = {"template_id", "description", "display_name", "overrides"}
 _INSTALL_KEYS = {"host", "confirm"}
-_HOSTS = ("openclaw", "hermes", "codex", "claude")
-_MAX_BODY_BYTES = 8 * 1024
+_MAX_BODY_BYTES = 24 * 1024
 
 
 def _safe_error(exc: Exception, fallback: str) -> str:
@@ -146,113 +147,52 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         return payload
 
     def _state_payload(self) -> dict[str, object]:
-        profiles: dict[str, object] = {}
-        profile_errors: dict[str, str | None] = {}
-        for host, store in self.server.stores.items():
-            try:
-                snapshot = store.read()
-                profiles[host] = snapshot.to_dict() if snapshot else None
-                profile_errors[host] = None
-            except ProfileStoreError as exc:
-                profiles[host] = None
-                profile_errors[host] = _safe_error(
-                    exc,
-                    "本地人格配置无法安全读取",
-                )
+        try:
+            snapshot = self.server.store.read()
+            profile = snapshot.to_dict() if snapshot else None
+            profile_error = None
+        except ProfileStoreError as exc:
+            profile = None
+            profile_error = _safe_error(exc, "本地 Persona 无法安全读取")
 
-        profile = profiles["codex"]
-        profile_error = profile_errors["codex"]
-
-        hosts: list[dict[str, object]] = []
-        for host in _HOSTS:
-            try:
-                hosts.append(self.server.installer.plan(host).to_dict())
-            except InstallError as exc:
-                hosts.append(
-                    {
-                        "host": host,
-                        "name": host.title(),
-                        "available": False,
-                        "existing": None,
-                        "error": _safe_error(exc, "安装方案无法安全生成"),
-                    }
-                )
-        strict_ready = bool(os.environ.get("OPENAI_API_KEY", "").strip())
-
-        def strict_mode(*, supported: bool = True) -> dict[str, object]:
-            if not supported:
-                return {
-                    "title": "固定形象严格模式",
-                    "status": "尚未接入",
-                    "auth_ready": False,
-                    "description": "当前版本只保留照片计划，不会冒充宿主执行图片调用。",
+        try:
+            hosts = [self.server.installer.plan("codex").to_dict()]
+        except InstallError as exc:
+            hosts = [
+                {
+                    "host": "codex",
+                    "name": "Codex",
+                    "available": False,
+                    "existing": None,
+                    "error": _safe_error(exc, "Codex 安装方案无法安全生成"),
                 }
-            return {
-                "title": "固定形象严格模式",
-                "status": (
-                    "当前启动环境已检测到 API Key"
-                    if strict_ready
-                    else "当前启动环境未检测到 API Key"
-                ),
-                "auth_ready": strict_ready,
-                "description": (
-                    "固定使用 gpt-image-2 / high；对应工具需继承 Key，每次付费调用前都会单独确认。"
-                ),
-            }
+            ]
 
-        photo_modes_by_host = {
-            "codex": {
-                "codex_native": {
-                    "title": "Codex 原生模式",
-                    "status": "无需单独配置",
-                    "description": "适合当前任务快速预览；画质由 Codex 管理，不作为 high 严格证明。",
-                },
-                "openai_strict": strict_mode(),
+        photo_modes = {
+            "codex_native": {
+                "title": "Codex 内置生图",
+                "status": "无需单独配置",
+                "description": "人物候选和日常照片都直接使用 Codex 内置 gpt-image-2，计入现有方案用量。",
             },
-            "openclaw": {
-                "codex_native": {
-                    "title": "OpenClaw 原生快速模式",
-                    "status": "宿主管理",
-                    "description": "请求 gpt-image-2 / high 并由 OpenClaw 返回当前会话；不能作为官方 API 直连证明。",
-                },
-                "openai_strict": strict_mode(),
+            "identity_reuse": {
+                "title": "固定形象复用",
+                "status": "本地链路已就绪，等待真实 Codex 验收",
+                "description": "候选只在你明确确认后进入私有参考槽；新任务会尝试把同一张参考图交给 Codex 内置生图，不需要 API Key。",
             },
-            "hermes": {
-                "codex_native": {
-                    "title": "Hermes 当前会话模式",
-                    "status": "使用严格模式",
-                    "description": "当前没有单独的通用快速模式；成图只交给本次入站会话。",
-                },
-                "openai_strict": strict_mode(),
-            },
-            "claude": {
-                "codex_native": {
-                    "title": "Claude 图片执行",
-                    "status": "仍为规划",
-                    "description": "等待明确的当前任务图片工具与附件契约，不复用其他宿主冒充执行。",
-                },
-                "openai_strict": strict_mode(supported=False),
-            },
+            "reference_configured": bool(
+                profile and profile["visual"]["reference_count"] == 1
+            ),
         }
-        for host, modes in photo_modes_by_host.items():
-            host_profile = profiles[host]
-            modes["reference_configured"] = bool(
-                host_profile
-                and host_profile["visual"]["reference_count"] == 1
-            )
 
         return {
-            "version": "0.5.0",
-            "phase": "Codex、OpenClaw 与 Hermes 已有各自图片路径；Claude 暂保留安全规划。",
+            "version": "0.7.0-dev.1",
+            "phase": "本轮只优化 Codex Persona 创建、聊天与内置生图体验；其他宿主配置保持独立。",
             "templates": [
                 template.to_dict() for template in self.server.store.templates()
             ],
             "profile": profile,
             "profile_error": profile_error,
-            "profiles": profiles,
-            "profile_errors": profile_errors,
-            "photo_modes": photo_modes_by_host["codex"],
-            "photo_modes_by_host": photo_modes_by_host,
+            "photo_modes": photo_modes,
             "hosts": hosts,
         }
 
@@ -309,6 +249,9 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         if path == "/api/profile":
             self._save_profile(payload)
             return
+        if path == "/api/persona/draft":
+            self._preview_draft(payload)
+            return
         if path == "/api/install":
             self._install_host(payload)
             return
@@ -319,16 +262,26 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "配置请求包含不允许的字段"})
             return
         template_id = payload.get("template_id")
+        description = payload.get("description")
         display_name = payload.get("display_name")
-        host = payload.get("host", "codex")
+        overrides = payload.get("overrides")
         expected_version = payload.get("expected_version")
         starting_mode = payload.get("starting_mode")
         romance_enabled = payload.get("romance_enabled")
-        if not isinstance(template_id, str) or not isinstance(display_name, str):
-            self._send_json(400, {"error": "请选择模板并填写称呼"})
+        if template_id is not None and not isinstance(template_id, str):
+            self._send_json(400, {"error": "模板编号无效"})
             return
-        if not isinstance(host, str) or host not in _HOSTS:
-            self._send_json(400, {"error": "请选择受支持的宿主"})
+        if description is not None and not isinstance(description, str):
+            self._send_json(400, {"error": "人物描述必须是文字"})
+            return
+        if template_id is None and not str(description or "").strip():
+            self._send_json(400, {"error": "请选择一个起点，或用一句话描述 TA"})
+            return
+        if display_name is not None and not isinstance(display_name, str):
+            self._send_json(400, {"error": "称呼必须是文字"})
+            return
+        if overrides is not None and not isinstance(overrides, dict):
+            self._send_json(400, {"error": "调整内容格式无效"})
             return
         if expected_version is not None and not isinstance(expected_version, str):
             self._send_json(400, {"error": "配置版本无效"})
@@ -341,11 +294,13 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            store = self.server.stores[host]
+            store = self.server.store
             existed = store.read() is not None
-            snapshot = store.save(
+            snapshot = store.save_draft(
                 template_id=template_id,
+                description=description,
                 display_name=display_name,
+                overrides=overrides,
                 expected_version=expected_version,
                 starting_mode=starting_mode,
                 romance_enabled=romance_enabled,
@@ -361,16 +316,54 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             return
         self._send_json(
             200 if existed else 201,
-            {"host": host, "profile": snapshot.to_dict()},
+            {"profile": snapshot.to_dict()},
         )
+
+    def _preview_draft(self, payload: dict[str, object]) -> None:
+        if set(payload) - _DRAFT_KEYS:
+            self._send_json(400, {"error": "预览请求包含不允许的字段"})
+            return
+        template_id = payload.get("template_id")
+        description = payload.get("description")
+        display_name = payload.get("display_name")
+        overrides = payload.get("overrides")
+        if template_id is not None and not isinstance(template_id, str):
+            self._send_json(400, {"error": "模板编号无效"})
+            return
+        if description is not None and not isinstance(description, str):
+            self._send_json(400, {"error": "人物描述必须是文字"})
+            return
+        if template_id is None and not str(description or "").strip():
+            self._send_json(400, {"error": "请选择一个起点，或用一句话描述 TA"})
+            return
+        if display_name is not None and not isinstance(display_name, str):
+            self._send_json(400, {"error": "称呼必须是文字"})
+            return
+        if overrides is not None and not isinstance(overrides, dict):
+            self._send_json(400, {"error": "调整内容格式无效"})
+            return
+        try:
+            draft = self.server.store.preview_draft(
+                template_id=template_id,
+                description=description,
+                display_name=display_name,
+                overrides=overrides,
+            )
+        except ProfileStoreError as exc:
+            self._send_json(
+                400,
+                {"error": _safe_error(exc, "无法安全补全 Persona 草稿")},
+            )
+            return
+        self._send_json(200, {"draft": draft.to_dict()})
 
     def _install_host(self, payload: dict[str, object]) -> None:
         if set(payload) - _INSTALL_KEYS:
             self._send_json(400, {"error": "安装请求包含不允许的字段"})
             return
         host = payload.get("host")
-        if not isinstance(host, str) or host not in _HOSTS:
-            self._send_json(400, {"error": "请选择受支持的宿主"})
+        if host != "codex":
+            self._send_json(400, {"error": "当前面板只安装 Codex"})
             return
         if payload.get("confirm") is not True:
             self._send_json(409, {"error": "请先查看安装方案并单独确认"})
@@ -400,25 +393,14 @@ def create_panel_server(
     if len(token) < 16:
         raise ValueError("面板授权令牌长度不足")
     root = Path(skill_root).resolve()
-    if profile_path is None:
-        profile_paths = {
-            host: default_profile_path(host) for host in _HOSTS
-        }
-    else:
-        codex_path = Path(os.path.abspath(Path(profile_path).expanduser()))
-        companion_root = codex_path.parents[1]
-        profile_paths = {
-            "codex": codex_path,
-            "openclaw": companion_root / "hosts" / "openclaw" / "profiles" / "default.toml",
-            "hermes": companion_root / "hosts" / "hermes" / "profiles" / "default.toml",
-            "claude": companion_root / "hosts" / "claude" / "profiles" / "default.toml",
-        }
+    codex_path = (
+        default_profile_path("codex")
+        if profile_path is None
+        else Path(os.path.abspath(Path(profile_path).expanduser()))
+    )
     return CompanionPanelServer(
         ("127.0.0.1", port),
-        stores={
-            host: ProfileStore(skill_root=root, profile_path=profile_paths[host])
-            for host in _HOSTS
-        },
+        stores={"codex": ProfileStore(skill_root=root, profile_path=codex_path)},
         installer=HostInstaller(skill_root=root, target_roots=install_roots),
         nonce=token,
     )

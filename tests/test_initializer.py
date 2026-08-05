@@ -42,9 +42,12 @@ class InitializerTests(unittest.TestCase):
                 profile = load_profile(
                     SKILL_ROOT / "assets" / "templates" / template.filename
                 )
+                self.assertEqual(profile.schema_version, 3)
                 self.assertTrue(profile.display_name)
                 self.assertIn("虚构成年", profile.visual.appearance)
                 self.assertEqual(profile.visual.reference_ids, ())
+                self.assertEqual(profile.visual.identity_status, "unset")
+                self.assertFalse(profile.visual.identity_anchor)
                 self.assertNotIn("手机", profile.visual.default_style)
                 self.assertNotIn("自拍", profile.visual.default_style)
 
@@ -72,6 +75,33 @@ class InitializerTests(unittest.TestCase):
                     default_profile_path("openclaw"),
                     default_profile_path("hermes"),
                 )
+
+    def test_codex_gets_v3_without_migrating_other_host_templates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            codex_path = root / "codex.toml"
+            openclaw_path = root / "openclaw.toml"
+
+            initialize_profile(
+                skill_root=SKILL_ROOT,
+                template_id="warm_healer",
+                display_name="小禾",
+                output=codex_path,
+                host="codex",
+            )
+            initialize_profile(
+                skill_root=SKILL_ROOT,
+                template_id="warm_healer",
+                display_name="小禾",
+                output=openclaw_path,
+                host="openclaw",
+            )
+
+            codex = load_profile(codex_path)
+            openclaw = load_profile(openclaw_path)
+            self.assertEqual(codex.schema_version, 3)
+            self.assertEqual(openclaw.schema_version, 2)
+            self.assertEqual(openclaw.visual.identity_anchor, "fictional-warm-healer-v1")
 
     def test_initialize_profile_uses_template_and_custom_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

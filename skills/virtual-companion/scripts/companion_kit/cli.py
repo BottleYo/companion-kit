@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from .config import ConfigError, load_profile
+from .codex_image_receipts import CodexImageReceiptError, CodexImageReceiptStore
 from .codex_photo import CodexPhotoWorkflow, PhotoWorkflowError
 from .contracts import HostCapabilities, HostClass, RequestEnvelope
 from .event_adapter import openclaw_native_preview_request
@@ -169,15 +170,15 @@ def _parser() -> argparse.ArgumentParser:
     event_identity.add_argument("--candidate-id", required=True)
     event_identity.add_argument("--profile-version", required=True)
 
-    photo = subparsers.add_parser("photo", help="Codex 当前任务的图片能力与严格模式")
+    photo = subparsers.add_parser("photo", help="查看 Codex 内置图片能力")
     photo_commands = photo.add_subparsers(dest="photo_command", required=True)
 
-    photo_status = photo_commands.add_parser("status", help="查看两种 Codex 图片模式")
+    photo_status = photo_commands.add_parser("status", help="查看 Codex 内置图片能力")
     photo_status.add_argument("--config", help="配置路径；默认使用初始化生成的配置")
 
     photo_prepare = photo_commands.add_parser(
         "prepare",
-        help="准备一次严格模式调用，只创建授权计划，不生图",
+        help="已停用的旧 Codex API 入口",
     )
     photo_prepare.add_argument("--config", help="配置路径；默认使用初始化生成的配置")
     photo_prepare.add_argument("--text", required=True, help="本次明确照片命令")
@@ -195,7 +196,7 @@ def _parser() -> argparse.ArgumentParser:
 
     photo_run = photo_commands.add_parser(
         "run",
-        help="消费一次授权并调用严格 Image API",
+        help="已停用的旧 Codex API 入口",
     )
     photo_run.add_argument("--config", help="配置路径；默认使用初始化生成的配置")
     photo_run.add_argument("--text", required=True, help="必须与 prepare 完全相同")
@@ -210,13 +211,20 @@ def _parser() -> argparse.ArgumentParser:
 
     photo_delivered = photo_commands.add_parser(
         "delivered",
-        help="确认已附加到当前任务并清理临时成图",
+        help="已停用的旧 Codex API 入口",
     )
     photo_delivered.add_argument("--artifact-id", required=True)
     photo_delivered.add_argument("--task-scope", required=True)
 
-    identity = subparsers.add_parser("identity", help="确认固定人物原型")
+    identity = subparsers.add_parser("identity", help="管理 Codex 内置生图产生的人物原型")
     identity_commands = identity.add_subparsers(dest="identity_command", required=True)
+    identity_stage = identity_commands.add_parser(
+        "stage-native",
+        help="把 Codex 当前任务中的 PNG 暂存为待确认人物原型",
+    )
+    identity_stage.add_argument("--config", help="配置路径；默认使用 Codex 独立配置")
+    identity_stage.add_argument("--file", required=True, help="当前任务真实生成或上传的 PNG")
+    identity_stage.add_argument("--task-scope", required=True)
     identity_confirm = identity_commands.add_parser(
         "confirm",
         help="把当前任务候选图固定为唯一身份参考",
@@ -433,10 +441,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"风格：{result.template.name}")
                 print(f"称呼：{result.profile.display_name}")
                 print(f"保存位置：{result.output}")
-                print("\n下一步：在新会话中启用 virtual-companion 即可。")
+                print(
+                    "\n下一步："
+                    + (
+                        "安装完整 Codex Plugin，然后开一个新任务直接聊天。"
+                        if args.host == "codex"
+                        else "在新会话中显式启用 virtual-companion。"
+                    )
+                )
                 host_hint = {
                     "codex": (
-                        "提示：Codex 可用原生预览；严格固定形象模式需另行配置并逐次确认。"
+                        "提示：Codex 生图始终使用内置能力，不需要 API Key 或其他 Provider。"
                     ),
                     "openclaw": (
                         "提示：OpenClaw 可先使用宿主管理的原生快速模式；"
@@ -583,7 +598,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "photo":
             if args.photo_command == "status":
                 _, snapshot = _profile_snapshot(args.config)
-                strict_ready = OpenAIImageClient().auth_ready
                 reference_configured, reference_ready = _reference_status(snapshot)
                 payload = {
                     "profile_id": snapshot.profile.id,
@@ -594,73 +608,82 @@ def main(argv: list[str] | None = None) -> int:
                         "codex_native": {
                             "setup": "无需单独配置",
                             "availability": "由当前 Codex 任务检测",
-                            "model": "gpt-image-2（宿主管理）",
-                            "quality": "宿主管理，不能作为 high 严格证明",
-                            "use_for": "快速预览与当前任务内迭代",
-                        },
-                        "openai_strict": {
-                            "setup": "需要当前宿主环境的 OPENAI_API_KEY",
-                            "auth_ready": strict_ready,
-                            "model": "gpt-image-2",
-                            "quality": "high",
-                            "use_for": "固定人物原型与参考图编辑",
+                            "model": "gpt-image-2（Codex 内置）",
+                            "billing": "计入 Codex 方案用量或额度",
+                            "use_for": "人物原型、日常照片与参考图编辑",
                         },
                     },
+                    "api_key_required": False,
+                    "provider_choice_required": False,
+                    "cross_task_reference_bridge": (
+                        "ready"
+                        if reference_ready
+                        else (
+                            "reference_unavailable"
+                            if reference_configured
+                            else "waiting_for_identity_confirmation"
+                        )
+                    ),
                 }
                 print(json.dumps(payload, ensure_ascii=False, indent=2))
                 return 0
 
             if args.photo_command in {"prepare", "run"}:
-                _, snapshot = _profile_snapshot(args.config)
-                decision = _codex_photo_decision(snapshot, args.text)
-                workflow = _photo_workflow()
-                if args.photo_command == "prepare":
-                    plan = workflow.prepare(
-                        snapshot=snapshot,
-                        decision=decision,
-                        purpose=args.purpose,
-                        task_scope=args.task_scope,
-                    )
-                    payload = {
-                        "stage": "planned",
-                        **plan.to_dict(),
-                        "confirmation_required": True,
-                        "confirmation": (
-                            "确认后只调用一次 OpenAI Image API；会按 API 用量计费，"
-                            "并发送本次图片提示。已有固定形象时还会发送一张参考图。"
-                            "本阶段只处理虚构成年人，不模仿真人。"
-                        ),
-                    }
-                else:
-                    result = workflow.run(
-                        snapshot=snapshot,
-                        decision=decision,
-                        purpose=args.purpose,
-                        task_scope=args.task_scope,
-                        plan_id=args.plan_id,
-                        confirmed=args.confirm_once,
-                    )
-                    payload = result.to_dict()
-                print(json.dumps(payload, ensure_ascii=False, indent=2))
-                return 0
+                raise PhotoWorkflowError(
+                    "Codex 已停用独立 API 生图入口；请直接使用 Codex 内置生图能力"
+                )
 
-            workflow = _photo_workflow()
-            workflow.finish_delivery(
-                artifact_id=args.artifact_id,
-                task_scope=args.task_scope,
+            raise PhotoWorkflowError(
+                "Codex 已停用独立 API 投递入口；图片由 Codex 当前任务直接接管"
             )
-            print(json.dumps({"stage": "delivered", "cleaned": True}, ensure_ascii=False))
-            return 0
 
         if args.command == "identity":
             profile_store, snapshot = _profile_snapshot(args.config)
+            if args.identity_command == "stage-native":
+                if snapshot.profile.visual.is_locked:
+                    raise PhotoWorkflowError(
+                        "当前人物脸部身份已经固定；如需更换必须先走明确的身份轮换流程"
+                    )
+                image_bytes = CodexImageReceiptStore().consume(
+                    session_id=args.task_scope,
+                    source_path=args.file,
+                )
+                candidate = _image_assets().store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=snapshot.profile.visual.identity_version,
+                    image_bytes=image_bytes,
+                    task_scope=args.task_scope,
+                    source="codex_native",
+                )
+                print(
+                    json.dumps(
+                        {
+                            "stage": "identity_candidate",
+                            "candidate_id": candidate.candidate_id,
+                            "profile_version": snapshot.version,
+                            "identity_version": snapshot.profile.visual.identity_version,
+                            "next_action": "只展示候选；用户明确确认后再固定",
+                            "api_key_required": False,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                return 0
+
             if snapshot.version != args.profile_version:
-                raise ProfileStoreError("人格配置已变化，请重新生成并确认候选原型")
-            reference, bound = _photo_workflow().confirm_identity(
-                profile_store=profile_store,
-                snapshot=snapshot,
+                raise ProfileStoreError("Codex Persona 已变化，请重新生成并确认候选原型")
+            assets = _image_assets()
+            reference = assets.confirm_candidate(
                 candidate_id=args.candidate_id,
+                profile_id=snapshot.profile.id,
+                identity_version=snapshot.profile.visual.identity_version,
                 task_scope=args.task_scope,
+            )
+            bound = profile_store.bind_reference(
+                reference_id=reference.reference_id,
+                identity_version=snapshot.profile.visual.identity_version,
+                expected_version=snapshot.version,
             )
             print(
                 json.dumps(
@@ -668,6 +691,7 @@ def main(argv: list[str] | None = None) -> int:
                         "stage": "identity_confirmed",
                         "reference_id": reference.reference_id,
                         "profile_version": bound.version,
+                        "api_key_required": False,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -709,6 +733,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except (
         AuthorizationError,
+        CodexImageReceiptError,
         ConfigError,
         ImageApiError,
         ImageAssetError,

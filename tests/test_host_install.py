@@ -41,7 +41,7 @@ class HostInstallTests(unittest.TestCase):
                 skill_root=SKILL_ROOT,
                 home=home,
                 environment={},
-                which=lambda name: "/usr/bin/openclaw" if name == "openclaw" else None,
+                which=lambda name: f"/usr/bin/{name}" if name in {"openclaw", "codex"} else None,
             )
 
             openclaw = installer.plan("openclaw")
@@ -52,8 +52,43 @@ class HostInstallTests(unittest.TestCase):
             self.assertEqual(openclaw.method, "native_cli")
             self.assertIsNone(openclaw.destination)
             self.assertEqual(hermes.destination, home / ".hermes" / "skills" / "virtual-companion")
-            self.assertEqual(codex.destination, home / ".agents" / "skills" / "virtual-companion")
+            self.assertEqual(codex.method, "codex_plugin")
+            self.assertIsNone(codex.destination)
+            self.assertEqual(codex.source, PROJECT_ROOT)
+            self.assertEqual(codex.bootstrap_argv[:4], ("/usr/bin/codex", "plugin", "marketplace", "add"))
+            self.assertIn("companion-kit@companion-kit-preview", codex.argv)
             self.assertEqual(claude.destination, home / ".claude" / "skills" / "virtual-companion")
+
+    def test_codex_apply_registers_marketplace_then_installs_plugin(self) -> None:
+        calls: list[tuple[list[str], dict[str, object]]] = []
+
+        def runner(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
+
+        installer = HostInstaller(
+            skill_root=SKILL_ROOT,
+            which=lambda name: "/usr/bin/codex" if name == "codex" else None,
+            runner=runner,
+        )
+
+        result = installer.install("codex")
+
+        self.assertTrue(result.applied)
+        self.assertEqual(result.plan.method, "codex_plugin")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][0][:4], ["/usr/bin/codex", "plugin", "marketplace", "add"])
+        self.assertEqual(
+            calls[1][0],
+            [
+                "/usr/bin/codex",
+                "plugin",
+                "add",
+                "companion-kit@companion-kit-preview",
+                "--json",
+            ],
+        )
+        self.assertTrue(all("shell" not in kwargs for _, kwargs in calls))
 
     def test_openclaw_apply_uses_fixed_argv_without_shell(self) -> None:
         calls: list[tuple[list[str], dict[str, object]]] = []
