@@ -31,7 +31,7 @@ class CliTests(unittest.TestCase):
         with self.assertRaises(argparse.ArgumentTypeError):
             _local_port("not-a-port")
 
-    def test_photo_status_explains_native_and_strict_modes_without_key(self) -> None:
+    def test_photo_status_uses_only_codex_builtin_images_without_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             profile_path = root / "profiles" / "default.toml"
@@ -52,11 +52,13 @@ class CliTests(unittest.TestCase):
                 payload["modes"]["codex_native"]["setup"],
                 "无需单独配置",
             )
-            self.assertFalse(payload["modes"]["openai_strict"]["auth_ready"])
-            self.assertEqual(payload["modes"]["openai_strict"]["quality"], "high")
+            self.assertEqual(set(payload["modes"]), {"codex_native"})
+            self.assertFalse(payload["api_key_required"])
+            self.assertFalse(payload["provider_choice_required"])
+            self.assertNotIn("OPENAI_API_KEY", output.getvalue())
             self.assertFalse((root / "private").exists())
 
-    def test_prepare_without_api_key_fails_before_creating_paid_plan(self) -> None:
+    def test_legacy_codex_api_prepare_is_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             profile_path = root / "profiles" / "default.toml"
@@ -87,7 +89,8 @@ class CliTests(unittest.TestCase):
                 )
 
             self.assertEqual(code, 2)
-            self.assertIn("OPENAI_API_KEY", error.getvalue())
+            self.assertIn("Codex 已停用独立 API 生图入口", error.getvalue())
+            self.assertNotIn("OPENAI_API_KEY", error.getvalue())
             self.assertEqual(list(root.rglob("plan_*.json")), [])
 
     def test_photo_status_does_not_call_missing_reference_ready(self) -> None:

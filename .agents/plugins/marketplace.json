@@ -1,0 +1,20 @@
+{
+  "name": "companion-kit-preview",
+  "interface": {
+    "displayName": "Companion Kit 预览版"
+  },
+  "plugins": [
+    {
+      "name": "companion-kit",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

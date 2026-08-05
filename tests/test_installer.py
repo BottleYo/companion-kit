@@ -145,8 +145,9 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(photo_status.returncode, 0, photo_status.stderr)
             status_payload = json.loads(photo_status.stdout)
-            self.assertIn("codex_native", status_payload["modes"])
-            self.assertFalse(status_payload["modes"]["openai_strict"]["auth_ready"])
+            self.assertEqual(set(status_payload["modes"]), {"codex_native"})
+            self.assertFalse(status_payload["api_key_required"])
+            self.assertFalse(status_payload["provider_choice_required"])
 
     def test_rejects_media_in_public_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

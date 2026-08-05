@@ -1,0 +1,17 @@
+{
+  "description": "在 Codex 新任务开始时安静加载本地陪伴人格。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/codex_context.py\"",
+            "timeout": 3,
+            "additionalContextLimit": 1800
+          }
+        ]
+      }
+    ]
+  }
+}

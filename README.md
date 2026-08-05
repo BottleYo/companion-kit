@@ -1,220 +1,191 @@
 # Companion Kit
 
-> **发布状态：0.5.0 Developer Preview（开发者内测）**
-> 当前版本适合在隔离环境中联调，不面向普通用户承诺稳定服务。请先阅读[开发者内测指南](docs/DEVELOPER_PREVIEW.md)，尤其不要直接在私人会话、生产 IM 或高额度 API 账号中进行首次测试。
+> 当前版本是 `0.6.0-dev.1`，面向愿意帮忙试用的开发者。Codex 是第一优先级，OpenClaw、Hermes 与 Claude 暂时保留已有适配，不并行增加新功能。
 
-Companion Kit 是一个轻量、可安装的虚拟陪伴示例：用通用模板建立人格和固定人物形象，同时保留 OpenClaw、Hermes、Codex 与 Claude 原有的问题解决能力。
+虚拟陪伴最容易在真正开始聊天时露出工具感。刚选好名字和性格，对话里却先出现“Skill 已启动”；想看一张照片，又被追问场景、模式、模型和费用。人物还没来得及让人喜欢，配置流程已经把气氛打断了。
 
-当前 `0.5.0` 已按宿主拆开：Codex 有原生预览和严格固定形象模式；OpenClaw 有宿主管理的原生快速模式，也可选择严格模式；Hermes 支持严格模式并只把成图交给当前入站会话；Claude 仍保持安全的照片计划。四者不需要同时安装或配置。
+Companion Kit 想把这些准备工作放回本地面板。你只配置一次，之后打开 Codex 新任务就能直接说话。她可以陪你聊几句，也可以接着检查代码、整理资料、分析问题。人格负责怎么和你说话，事情仍由 Codex 原来的能力完成。
 
-项目不包含任何私人 persona、聊天记录、生成照片、记忆或凭据。内置人物都是通用的虚构成年人模板。
+固定人物照片是这个项目的另一半。我们希望你说一句“拍张照片给我”，收到的是人物此刻愿意分享的一张照片，而不是一段生图任务回执。在 Codex 中，这件事只使用 Codex 自带的图片生成能力，不要求 API Key，也没有 Provider 选择。当前任务内已经可以直接生成和继续修改；跨任务自动保存同一张人物参考图还在接入。
 
-## 支持情况
+## 现在做到哪一步了
 
-| 宿主 | 人格聊天与原任务 | 照片能力 | 安装关系 |
-|---|---|---|---|
-| Codex | 已支持 | 原生快速预览；严格固定人物闭环 | 可单独安装 |
-| OpenClaw | 已支持 | 原生快速模式；严格固定人物；只回当前会话 | 可单独安装 |
-| Hermes | 已支持 | 严格固定人物；只回当前会话 | 可单独安装 |
-| Claude | 已支持 | 只输出计划 | 可单独安装 |
+| 部分 | 当前状态 |
+| --- | --- |
+| Codex 自然聊天 | 已接入完整 Plugin。新任务会安静读取本地人格和关系投影，不需要输入 `$virtual-companion` |
+| Codex 原有能力 | 保留。代码、分析、写作和工具调用照常工作，人格只影响表达 |
+| 本地初始化面板 | 已有四套通用模板，可设置称呼、相处起点和恋爱式陪伴开关 |
+| 关系模型 | 三维状态、短期气氛、事件规则、事务和隐私存储已完成；从真实聊天自动提取事件仍未接入 |
+| 固定人物图片 | Codex 直接使用内置 `gpt-image-2`，无需 API Key；自然照片指令和当前任务参考图可用，跨任务参考图桥接仍在开发 |
+| OpenClaw / Hermes | 保留现有 Skill、严格图片流程和当前会话投递边界，暂不扩展 |
+| Claude | 保留人格与照片计划，暂未接入真实图片执行 |
 
-用户可以只用其中一个，也可以安装多个；不要求四个宿主同时存在。
+这意味着当前版本适合验证 Codex 的自然聊天入口，也适合开发者联调图片流程。它还不适合当作已经完成的普通用户产品推广。
 
-## 最简单的开始方式
+## 它想做成什么样
 
-打开只允许本机访问的初始化与管理面板：
+理想的使用过程很短。
+
+1. 安装项目，打开本地面板。
+2. 选一套模板，改个称呼，决定从自然认识开始还是像已经熟悉一阵。
+3. 第一次想看照片时，由 Codex 内置生图生成一张虚构成年人候选；喜欢后确认这个形象。
+4. 以后正常打开 Codex 聊天。闲聊、拍照和解决问题都不需要先喊出功能名称。
+
+面板只负责少数真正需要你决定的事情。Codex 日常聊天不应该反复解释人格、提示词和内部任务状态，更不应该要求用户配置生图 Provider。
+
+## 五分钟开始体验 Codex
+
+### 1. 下载项目
+
+```bash
+git clone https://github.com/BottleYo/companion-kit.git
+cd companion-kit
+```
+
+需要 Python 3.11 或更高版本。Codex 中的人格聊天和图片生成都不需要单独的 OpenAI API Key。
+
+### 2. 打开本地面板
 
 ```bash
 python3 skills/virtual-companion/scripts/companionctl.py ui
 ```
 
-面板会自动打开浏览器，可以：
+浏览器会自动打开。面板只监听本机地址，每次启动都会生成新的随机访问令牌。
 
-- 先选择正在使用的工具，再从四套通用模板中选择人格；
-- 设置称呼、相处起点和是否允许关系自然发展为恋爱式陪伴；
-- 预览聊天方式、固定形象与照片质感；
-- 查看各工具的图片模式和当前面板启动环境；最终以对应宿主内的状态检查为准；
-- 预览并二次确认安装到任意一个宿主。
+在面板里选择 Codex，然后完成这些选择。
 
-面板只监听 `127.0.0.1`，每次启动使用新的随机授权链接。它不读取现有 `SOUL.md`、`USER.md`、记忆、聊天或照片目录，也不接受 API Key 输入。
+- 人格模板。温柔治愈、元气朋友、冷静搭档、轻松幽默。
+- 你想使用的称呼。
+- 从自然认识开始，或者像已经熟悉一阵。
+- 是否允许关系以后发展出恋人式表达。打开开关不会直接把关系变成恋人。
 
-不想打开网页时，直接运行：
+保存后再点“安装到 Codex”。面板会先展示安装方案，只有你再次确认才会写入 Codex。
 
-```bash
-python3 skills/virtual-companion/scripts/companionctl.py init
-```
+### 3. 完成一次 Hook 信任确认
 
-向导只问模板和称呼，两项都可以按回车使用推荐值。命令行可用 `--host codex|openclaw|hermes|claude` 指定工具；Web 面板直接下拉选择。每个工具各自保存，互不覆盖。可以用 `COMPANION_HOME` 改变私有数据根目录。
+Companion Kit 使用 Codex 官方的 `SessionStart` Hook，在新任务开始时读取本地配置。Codex 不会自动信任新安装的命令 Hook。首次启用时请按 Codex 提示查看并信任它，也可以在支持的界面里打开 `/hooks` 检查。
 
-例如只为 Hermes 初始化：
+这个 Hook 只在任务开始时工作。它不会读取本轮用户消息，不读取聊天转录，也不保存聊天正文。配置不存在或读取失败时，它会安静退出，不阻断 Codex。
+
+### 4. 开一个新任务，直接聊天
+
+不需要输入 Skill 名称。可以直接说：
+
+> 你今天过得怎么样？
+
+也可以直接把事情交给她：
+
+> 陪我看看这个项目为什么测试失败。
+
+如果刚刚在面板里改过人格，请新开一个任务，让 Codex 重新读取配置。
+
+### 不使用面板
+
+命令行也可以完成同样的初始化和安装。
 
 ```bash
 python3 skills/virtual-companion/scripts/companionctl.py init \
-  --host hermes \
+  --host codex \
   --template warm_healer \
   --display-name '小禾'
-```
 
-内置模板：
-
-- 温柔治愈（推荐）：耐心、柔和；
-- 元气朋友：明快、有行动力；
-- 冷静搭档：理性、可靠；
-- 轻松幽默：自然、有趣但有分寸。
-
-## 安装到一个或多个宿主
-
-先预览：
-
-```bash
 python3 skills/virtual-companion/scripts/companionctl.py install --host codex
-```
-
-确认后安装：
-
-```bash
 python3 skills/virtual-companion/scripts/companionctl.py install --host codex --apply
 ```
 
-把 `codex` 换成 `openclaw`、`hermes` 或 `claude` 即可。安装器默认只预览；只有显式加入 `--apply` 或在 Web 面板二次确认后才会写入。
+第一条安装命令只预览，第二条带 `--apply` 的命令才会注册项目内的 Codex marketplace 并安装完整 Plugin。
 
-- OpenClaw：使用原生 `openclaw skills install`；
-- Hermes：安装到 Hermes 的用户 Skill 目录；
-- Codex：安装到用户级 `.agents/skills/virtual-companion`；
-- Claude：安装到用户级 `.claude/skills/virtual-companion`。
+## 人格怎样工作
 
-新装后请开启新任务：Codex 使用 `$virtual-companion`，Claude 独立 Skill 使用 `/virtual-companion`。Skill 会按当前宿主自动读取其独立配置。
+人格是一层很薄的表达上下文。新任务开始时，Codex 会拿到称呼、性格倾向、说话习惯、人物边界、外观描述和当前关系投影。它还会拿到两条明确规则。
 
-## 实际使用体验
+- 闲聊时自然地用第一人称说话，不介绍模板，不播报加载过程，也不虚构共同经历。
+- 遇到具体任务时完整使用 Codex 原能力。事实、安全和任务结果的优先级始终高于人设表达。
 
-普通任务仍由原宿主完成。例如：
+项目不会替换 Codex 的系统提示，也不会把陪伴对象做成另一个只会聊天的机器人。
 
-> 帮我检查这个项目为什么测试失败。
+## 关系怎样变化
 
-陪伴对象只改变表达方式，不会截断工具能力，也不会为了“维持人设”牺牲事实准确性。
+关系没有一条从 1 级升到 5 级的直线。核心同时保存三个长期维度。
 
-明确照片请求使用：
+- 熟悉度表示彼此了解了多少。
+- 信任度决定人物是否愿意接受更私人的表达。
+- 亲近度影响语气、主动程度和照片表达的距离。
 
-> 照片：雨后街角轻松散步
+短期气氛单独保存，比如轻松、温柔、需要缓和。它会按时间恢复自然，不会把一次小摩擦永久写进长期关系。长期关系也不会因为几天没聊天就自动掉分。
 
-对用户来说只需要做很少的选择：
+真正改变关系的是少量、可解释的事件，例如明确感谢、尊重偏好、尊重边界、明确不适和修复。重复消息有幂等保护，同一天的变化有上限，低置信度判断不会写入。
 
-- 快速试拍：Codex 原生能力，或 OpenClaw 的宿主管理原生能力；
-- 固定形象：严格模式，首次先生成一张候选原型，用户喜欢后固定，后续照片复用该参考图。
+当前 `0.6.0-dev.1` 会在 Codex 新任务开始时读取已有关系投影，但还不会从真实聊天自动生成这些事件。也就是说，多维关系核心已经可用，自动变化的接线还没有完成。项目不会用关键词偷偷给亲密度加分。
 
-生图过程中不会把完整提示词、Router、Provider、后台状态、轮询秒数或本地路径发给用户。技术信息只在首次配置、付费确认或失败时出现。
+更完整的规则见[关系状态规范](docs/RELATIONSHIP_SPEC.md)。
 
-## 图片 Provider 怎么配置
+## 固定人物照片怎样来
 
-### 原生快速模式
+内置模板提供的是通用外观方向和照片质感，不包含任何真人照片。用户第一次想固定形象时，Codex 会按模板和用户调整过的外观描述，直接调用内置 `gpt-image-2` 生成一张虚构成年人候选原型。
 
-Codex 直接使用当前任务提供的原生图片能力，不需要 Companion Kit API Key。OpenClaw 可以请求宿主的 `image_generate`，显式请求 `openai/gpt-image-2`、`high`、单张 PNG，并由宿主异步返回原会话。
+用户喜欢并确认后，后续照片把这张图作为视觉参考，让脸、发型和整体气质尽量稳定。当前任务可以直接使用最近确认的图片；跨任务自动保存到 Companion Kit 私有参考槽的桥接仍在开发。换一套模板不会自动继承旧人物，也不会偷偷导入其他宿主的照片。
 
-这两条路径都标记为 `host_managed`：它们轻便，但 Companion Kit 不能把宿主路由证明成官方 OpenAI Image API 直连。原生预览不建立可审计的跨任务固定身份，也不能冒充严格模式。
+Codex 只有一条图片路径。
 
-### 严格模式
+- 人物原型、日常照片和参考图编辑都使用 Codex 内置图片生成。
+- 图片计入用户现有 Codex 方案的使用量或额度。内置图片不可用或额度用完时，本次照片能力暂停。
+- Companion Kit 不检查 `OPENAI_API_KEY`，不要求选择 Provider，不发起额外 API 付费确认。
+- 用户没有指定场景时，人物根据关系边界和当前对话自己选择普通生活场景。
+- 用户已经说清场景时直接生成，不再追问模式、服装、动作或模型参数。
 
-Codex、OpenClaw 与 Hermes 的严格模式共用同一套安全请求规则，但配置和本地状态按宿主隔离。它直接使用官方 OpenAI Image API，并固定：
+官方说明中，Codex 内置生图使用 `gpt-image-2`，消耗现有 Codex 使用额度。只有用户主动选择大批量的编程式生图时，API 才是另一个可选产品；它不属于 Companion Kit 的 Codex 日常路径。参见 [Codex 图片生成说明](https://learn.chatgpt.com/docs/image-generation)。
 
-- `model = gpt-image-2`；
-- `quality = high`；
-- 新人物原型使用 `images/generations`；
-- 固定人物后使用 `images/edits` 与唯一参考图；
-- 每次只生成一张，不自动重试、不切换模型或网关。
+下一步重点是参考图桥接。它会在用户明确确认候选以后，把这一张图安全放进私有参考槽；新任务再拍照时，Codex 内置生图会自动带上这张参考图。桥接没有完成以前，项目可以承认跨任务固定尚未就绪，但不能借机引导用户配置 API。
 
-严格模式使用独立的 OpenAI API 用量计费。图片请求参数可以被本项目证明；审美质量和像素级一致性仍不能被任何固定参数完全保证。
+图片细节见[Provider 契约](docs/PROVIDER_CONTRACT.md)和[数据生命周期](docs/DATA_LIFECYCLE.md)。
 
-检查 Codex 状态：
+## 为什么还保留 Skill
 
-```bash
-python3 skills/virtual-companion/scripts/companionctl.py photo status
-```
+Codex 的正常聊天入口已经不依赖 Skill。`virtual-companion` Skill 仍然保留，主要有三个用途。
 
-检查事件型宿主状态：
+- 检查配置和图片能力。
+- 检查 Codex 内置图片能力和跨任务参考图状态。
+- 为 OpenClaw、Hermes 和 Claude 提供现阶段兼容入口。
 
-```bash
-python3 skills/virtual-companion/scripts/companionctl.py event-photo status --host openclaw
-python3 skills/virtual-companion/scripts/companionctl.py event-photo status --host hermes
-```
+Codex 清单已经设置 `allow_implicit_invocation: false`。普通聊天不会自行启动这个 Skill，也不会由项目输出“Skill 已启动”之类内容。Codex 自己的工作耗时和折叠工具轨迹属于宿主界面，项目无法承诺隐藏。
 
-严格模式只从实际运行该 Skill 的宿主进程环境读取 `OPENAI_API_KEY`，不把 Key 写进 TOML、项目、面板、关系库或图片清单。因此用户只需给自己选择的宿主配置；安装多个时也可以只启用其中一部分的严格模式。macOS/Linux 可在启动对应宿主前用隐藏输入临时设置：
+## 只安装你正在用的工具
 
-```bash
-read -s COMPANION_OPENAI_KEY
-export OPENAI_API_KEY="$COMPANION_OPENAI_KEY"
-unset COMPANION_OPENAI_KEY
-```
+四个宿主互相独立。用户可以只装一个，也可以装多个。
 
-桌面应用或后台 Gateway 若没有继承这个终端环境，状态会显示“需要配置”。不要把 API Key 粘贴到聊天里。
+| 宿主 | 当前安装形式 | 当前图片能力 |
+| --- | --- | --- |
+| Codex | 完整 Plugin，含安静会话 Hook 和显式诊断 Skill | 只用 Codex 内置生图；跨任务固定人物桥接开发中 |
+| OpenClaw | 独立 Skill | 宿主管理快速模式与严格模式，只交给当前会话 |
+| Hermes | 独立 Skill | 严格模式，只交给当前会话 |
+| Claude | 独立 Skill | 只输出安全计划 |
 
-## 严格模式的确认与固定形象
-
-严格模式把“想要一张照片”和“同意一次 API 付费调用”分开：
-
-1. 明确照片请求只创建计划，不联网；
-2. 向用户说明计费、数据去向与虚构成年人边界；
-3. 用户明确确认后，授权绑定当前任务、人格版本、提示摘要、参考图和路由；
-4. 授权在调用前先消费，只能使用一次；进程中断也不会自动重放；
-5. 首张候选需要用户第二次确认，才成为当前身份版本的唯一参考图；
-6. 后续成图只交给当前任务或当前入站会话，生成成功和投递成功分别处理。
-
-内部命令由 Skill 自动执行。高级用户可以查看完整步骤：
+OpenClaw、Hermes 和 Claude 的安装预览仍可使用：
 
 ```bash
-python3 skills/virtual-companion/scripts/companionctl.py photo prepare \
-  --purpose prototype \
-  --task-scope '<当前任务的不透明值>' \
-  --text '照片：自然光身份参考照'
+python3 skills/virtual-companion/scripts/companionctl.py install --host hermes
+python3 skills/virtual-companion/scripts/companionctl.py install --host hermes --apply
 ```
 
-用户确认后，使用返回的 `plan_id` 运行同一原文：
+把 `hermes` 换成 `openclaw` 或 `claude` 即可。已经在使用 OpenClaw 或 Hermes 的用户，请先阅读[开发者内测指南](docs/DEVELOPER_PREVIEW.md)，不要拿私人会话和生产 IM 做第一次联调。
 
-```bash
-python3 skills/virtual-companion/scripts/companionctl.py photo run \
-  --purpose prototype \
-  --task-scope '<同一值>' \
-  --plan-id '<plan_id>' \
-  --text '照片：自然光身份参考照' \
-  --confirm-once
-```
+## 本地数据和隐私
 
-候选图不会形成图库。确认后只保留一张去除文本和 EXIF 等元数据的 PNG；配置只记录不透明 `reference_id`，不记录真实路径。
+这个公开仓库只有通用模板和程序，不包含任何私人 persona、聊天记录、记忆、人物照片、账号或凭据。
 
-## 本地数据与隐私
+本地配置默认保存在项目目录之外。各宿主使用独立命名空间，不会因为人物称呼相同就自动共享。
 
-默认私有数据在 `.companion-kit` 下，发行项目之外。Codex 使用根级目录；OpenClaw、Hermes 和 Claude 默认位于各自的 `hosts/<host>/` 命名空间：
+- 人格配置保存称呼、表达方式、通用外观和不透明参考 ID。
+- 关系库只保存结构化分数和事件，不保存聊天正文。
+- 图片目录只保留一个候选槽、一张已确认身份参考和短期待投递图片，不形成图库。
+- 授权记录只保存摘要和过期时间，不保存提示正文。
 
-- `profiles/default.toml`：人格与唯一不透明参考标识；
-- `private/images`：一个候选槽、当前身份版本的一张参考图、待当前任务接管的短期成图；
-- `private/authorizations`：短期单次授权摘要，不保存提示正文或任务原文；
-- `private/event-jobs`：事件去重与交付阶段，只保存摘要和不透明 ID，不保存联系人或绝对路径；
-- 关系状态库：只保存结构化数值与事件，不保存聊天正文。
+跨任务参考图接入后，图片保存前会检查 PNG 结构、尺寸、CRC 和实际解码结果，并去除文本和 EXIF 等非必要元数据。Codex 内置生图会收到本次图片提示；使用固定形象时还会收到参考图。宿主侧的使用和留存不受本地删除完全控制。
 
-参考图和成图保存前会严格校验 PNG、像素大小、CRC 和解码结果，并重写为只含像素必需分块的 PNG。目录和文件使用私有权限，路径遇到符号链接时拒绝。严格模式当前只接受 Companion Kit 当次生成且由用户确认的虚构成年人原型，不导入任意外部照片或真人身份。
+完整边界见[隐私说明](PRIVACY.md)和[威胁模型](docs/THREAT_MODEL.md)。
 
-Provider 会收到本次提示；已有固定形象时还会收到一张参考图。Provider 侧的使用与留存不受本地删除完全控制。
-
-## 架构边界
-
-```text
-明确照片请求
-  → CompanionKernel 只产出计划
-  → 当前任务或当前会话单次授权
-  → 固定官方 Image API 请求
-  → 私有候选或短期成图
-  → Codex 当前任务，或 OpenClaw / Hermes 当前入站会话
-```
-
-Kernel 不读取凭据、不联网、不解析图片路径。Provider 路由只判断能力与证据；API 执行器只处理固定请求；资产库只解析不透明 ID。事件型宿主在最后一刻才展开绝对路径，并且不接受联系人或任意目标。人格 TOML 和关系 SQLite 不承担图片历史。
-
-完整规格：
-
-- [关系状态规范](docs/RELATIONSHIP_SPEC.md)
-- [图片 Provider 契约](docs/PROVIDER_CONTRACT.md)
-- [数据生命周期](docs/DATA_LIFECYCLE.md)
-- [威胁模型](docs/THREAT_MODEL.md)
-
-## 发布前自检
+## 开发与检查
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 \
@@ -226,15 +197,6 @@ PYTHONDONTWRITEBYTECODE=1 \
   --forbid-text '<你的私人角色名称>'
 ```
 
-第二条会扫描整个项目与 Git 对象，拒绝私人角色文件、聊天/会话状态、人物媒体、数据库、密钥文件、符号链接、缓存和常见本机绝对路径。
+公开包检查会扫描当前工作树和 Git 对象，拒绝人物媒体、聊天状态、数据库、密钥、符号链接、缓存、本机绝对路径和调用者指定的私人标识。
 
-## 当前未包含
-
-- Claude 的真实图片执行；
-- 对 OpenClaw / Hermes 外部聊天平台真实发图的现场验收；当前只完成隔离假 Provider 和当前会话交付适配器验证；
-- 任意外部参考照片上传或真人身份复刻；
-- 从聊天自动提取并写入关系事件；
-- 自动跨宿主共享关系或图片状态；
-- 图片图库、候选历史、提示词历史或聊天历史。
-
-这些能力会作为独立适配器逐项加入，不进入轻量公共核心。OpenClaw / Hermes 没有明确宿主回执时，状态停在 `delivery_unknown`，短期文件等待 TTL 清理，绝不自动重发或声称“已发送”。
+想了解接下来为什么先做 Codex、关系与图片怎样接起来，可以继续看[产品逻辑](docs/PRODUCT_LOGIC.md)和[实施计划](docs/IMPLEMENTATION_PLAN.md)。

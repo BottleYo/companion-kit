@@ -182,6 +182,9 @@ function hostDescription(host) {
   if (host.method === "native_cli") {
     return `${family} · 使用 ${host.name} 原生安装器`;
   }
+  if (host.method === "codex_plugin") {
+    return `${family} · 安装完整 Codex Plugin`;
+  }
   return `${family} · 安装独立 Skill`;
 }
 
@@ -220,17 +223,17 @@ function renderHosts() {
 function renderPhotoModes() {
   const modes = state.photo_modes_by_host?.[selectedHost] || state.photo_modes;
   const nativeMode = modes?.codex_native;
-  const strictMode = modes?.openai_strict;
-  if (!nativeMode || !strictMode) return;
+  const secondaryMode = modes?.identity_reuse || modes?.openai_strict;
+  if (!nativeMode || !secondaryMode) return;
   setText(elements.photoHostLabel, `${hostNames[selectedHost]} 图片能力`);
   const heading = {
-    codex: "两种模式，按需选择",
+    codex: "一种生图方式，直接使用 Codex",
     openclaw: "两种模式，按需选择",
     hermes: "固定形象，配置一次即可",
     claude: "当前先保留安全规划",
   };
   const intro = {
-    codex: "平时可用 Codex 原生能力快速预览；需要固定人物和明确 high 画质时，再选择严格模式。",
+    codex: "人物原型和日常照片都使用 Codex 内置生图，不需要 API Key，也不需要选择 Provider。",
     openclaw: "可以先用宿主原生能力快速试拍；想固定人物形象时，再配置严格模式。",
     hermes: "当前通过严格模式固定人物并生成照片，成图只交给本次入站会话。",
     claude: "当前版本不会冒充图片工具执行生图；人格聊天和原有问题解决能力不受影响。",
@@ -241,15 +244,15 @@ function renderPhotoModes() {
   setText(elements.nativeModeTitle, nativeMode.title);
   setText(elements.nativeModeStatus, nativeMode.status);
   setText(elements.nativeModeDescription, nativeMode.description);
-  setText(elements.strictModeTitle, strictMode.title);
-  setText(elements.strictModeStatus, strictMode.status);
-  setText(elements.strictModeDescription, strictMode.description);
+  setText(elements.strictModeTitle, secondaryMode.title);
+  setText(elements.strictModeStatus, secondaryMode.status);
+  setText(elements.strictModeDescription, secondaryMode.description);
   setText(
     elements.referenceStatus,
     modes.reference_configured ? "配置已绑定固定人物参考" : "尚未固定人物原型",
   );
   const help = {
-    codex: "在当前任务里说“照片：画面描述”即可。严格模式会先确认本次计费与数据去向。",
+    codex: "直接说“拍张照片给我”即可。固定人物只是参考图复用，不会切换到另一套 API 流程。",
     openclaw: "可先用原生模式快速试拍；需要固定形象时使用严格模式，结果只回当前入站会话。",
     hermes: "严格模式生成后只通过当前回复交给 Hermes Gateway，不填写或猜测联系人。",
     claude: "当前只生成安全的照片计划，等宿主附件契约明确后再开放执行。",
@@ -294,7 +297,11 @@ function openInstallDialog(host) {
   pendingHost = host.host;
   setText(elements.dialogTitle, `安装到 ${host.name}`);
   const destination = host.destination ? `目标位置：${host.destination}` : "将使用宿主自己的安全安装机制。";
-  setText(elements.dialogSummary, `${hostDescription(host)}。${destination} 只会加入通用 Skill，不会修改全局人格或读取现有私人资料。`);
+  const packageName = host.method === "codex_plugin" ? "通用 Plugin" : "通用 Skill";
+  const extra = host.method === "codex_plugin"
+    ? "首次启用时，Codex 会要求你查看并信任本地会话钩子。"
+    : "";
+  setText(elements.dialogSummary, `${hostDescription(host)}。${destination} 只会加入${packageName}，不会修改全局人格或读取现有私人资料。${extra}`);
   elements.installDialog.showModal();
 }
 

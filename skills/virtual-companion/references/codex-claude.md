@@ -4,7 +4,7 @@
 
 ## Codex
 
-安装通用 Skill：
+安装完整 Plugin：
 
 ```bash
 python3 skills/virtual-companion/scripts/companionctl.py install \
@@ -12,12 +12,14 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
   --apply
 ```
 
-默认安装到用户级 `.agents/skills/virtual-companion`。仓库中的 `.codex-plugin/plugin.json` 用于插件封装；manifest 本身不代表已注册 marketplace。
+安装器会注册仓库内的 `companion-kit-preview` marketplace，再安装完整 Plugin。Plugin 包含安静的会话 Hook；Skill 只保留为显式诊断入口。
 
-`0.5.0` 有两种 Codex 图片模式：
+`0.6.0-dev.1` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。
 
-- 原生模式：当前任务内使用 Codex 图片能力，无需 Companion Kit API Key；适合快速预览。模型由 Codex 管理，不能由本项目独立证明 `quality=high`，也不承诺跨任务固定身份。
-- 严格模式：当前 Codex 进程环境需要 `OPENAI_API_KEY`，每次真实调用前单独确认；请求固定官方 Image API、`gpt-image-2`、`high`。首次生成候选原型，确认后只保存一张私有参考图，后续使用 `edits`。
+- 不读取、不检查也不索要 `OPENAI_API_KEY`。
+- 不让用户选择 Provider、快速模式、严格模式或 API 计费方式。
+- 人物原型、日常照片与参考图编辑都直接调用当前 Codex 图片工具。
+- 当前任务已有确认原型时，使用最近对话图片作为参考；跨任务私有参考图桥接完成后，使用本地参考路径。
 
 检查状态：
 
@@ -25,11 +27,9 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
 python3 skills/virtual-companion/scripts/companionctl.py photo status
 ```
 
-macOS、Linux 或 Windows 终端用户，应先在启动 Codex 的同一个环境中设置 `OPENAI_API_KEY`，再启动 Codex。不要把 Key 写进人格 TOML、项目文件、Skill、Web 面板或聊天消息。Codex 桌面应用若没有继承终端环境，严格模式会显示“需要配置”，但原生模式仍可用。
+Codex 内置生图无需额外 Provider 配置。只有 OpenClaw 或 Hermes 的独立严格适配仍可能使用宿主进程中的 `OPENAI_API_KEY`，不得把这些要求带回 Codex 对话。
 
-严格模式按 OpenAI API 用量单独计费。每次授权只允许一次调用；原文、人格版本、参考图、任务作用域或路由发生变化后，必须重新确认。API 失败不会自动重试或切换模型。
-
-生成结果只作为当前任务附件。候选确认前不会成为固定形象；普通成图在宿主接管附件后清理，不形成图库。当前版本不允许导入任意外部照片或真人身份。
+生成结果只返回当前任务。候选确认前不会成为固定形象。当前版本不允许导入任意外部真人照片；跨任务参考图自动保存仍在开发。
 
 ## Claude Code / Desktop
 
@@ -43,7 +43,7 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
 
 默认安装到用户级 `.claude/skills/virtual-companion`。开发态也可以用 `claude --plugin-dir .` 加载插件根目录；开发态命令为 `/companion-kit:virtual-companion`，独立 Skill 为 `/virtual-companion`。
 
-Claude 在 `0.5.0` 仍只输出图片计划。即使环境存在图片工具，也不要复用 Codex 或事件型宿主的严格执行命令冒充 Claude 适配器；缺少明确的当前任务附件契约时返回 `image_generation_unavailable`。
+Claude 在 `0.6.0-dev.1` 仍只输出图片计划。即使环境存在图片工具，也不要复用 Codex 或事件型宿主的严格执行命令冒充 Claude 适配器；缺少明确的当前任务附件契约时返回 `image_generation_unavailable`。
 
 ## 共同规则
 

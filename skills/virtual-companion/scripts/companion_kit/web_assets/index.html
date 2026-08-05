@@ -110,22 +110,22 @@
 
         <article class="panel future-card">
           <p id="photoHostLabel" class="step">Codex 图片能力</p>
-          <h2 id="photoModeHeading">两种模式，按需选择</h2>
-          <p id="photoIntro">平时可用 Codex 原生能力快速预览；需要固定人物和明确 high 画质时，再选择严格模式。</p>
+          <h2 id="photoModeHeading">一种生图方式，直接使用 Codex</h2>
+          <p id="photoIntro">人物原型和日常照片都使用 Codex 内置生图，不需要 API Key，也不需要选择 Provider。</p>
           <div id="photoModes" class="photo-modes" aria-label="Codex 图片模式">
             <div>
-              <strong id="nativeModeTitle">Codex 原生模式</strong>
+              <strong id="nativeModeTitle">Codex 内置生图</strong>
               <span id="nativeModeStatus">读取中</span>
               <small id="nativeModeDescription"></small>
             </div>
             <div>
-              <strong id="strictModeTitle">严格固定形象模式</strong>
+              <strong id="strictModeTitle">固定形象复用</strong>
               <span id="strictModeStatus">读取中</span>
               <small id="strictModeDescription"></small>
             </div>
           </div>
           <span id="referenceStatus" class="coming-soon">尚未固定人物原型</span>
-          <p id="photoHelp" class="photo-help">使用时只需在当前任务里说“照片：画面描述”。严格模式首次会先让你确认计费与数据去向。</p>
+          <p id="photoHelp" class="photo-help">直接说“拍张照片给我”即可。固定人物只是参考图复用，不会切换到另一套 API 流程。</p>
         </article>
       </section>
 
@@ -143,7 +143,7 @@
 
       <section class="privacy-strip" aria-label="隐私说明">
         <span aria-hidden="true">●</span>
-        <p><strong>隐私边界：</strong>不读取现有 SOUL、USER、记忆、聊天记录或照片目录；严格模式只有在你单次确认后才把本次提示和已确认参考图发送给 OpenAI。OpenClaw / Hermes 的成图只交给当前入站会话，没有明确回执时不会声称已送达或自动重发。</p>
+        <p><strong>隐私边界：</strong>不读取现有 SOUL、USER、记忆、聊天记录或照片目录；Codex 图片只在当前任务使用内置生图能力。OpenClaw / Hermes 的独立严格适配仍按各自授权执行，成图只交给当前入站会话。</p>
       </section>
     </main>
 

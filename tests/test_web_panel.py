@@ -78,7 +78,7 @@ class WebPanelTests(unittest.TestCase):
                 self.assertIn("default-src 'self'", response.getheader("Content-Security-Policy"))
                 self.assertEqual(response.getheader("Cache-Control"), "no-store")
 
-    def test_state_explains_codex_photo_modes_without_exposing_credentials(self) -> None:
+    def test_state_explains_codex_builtin_images_without_api_setup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with running_panel(Path(tmp).resolve()) as (server, _):
                 response, body = request(
@@ -90,9 +90,10 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.5.0")
+                self.assertEqual(payload["version"], "0.6.0-dev.1")
                 self.assertIn("codex_native", payload["photo_modes"])
-                self.assertIn("openai_strict", payload["photo_modes"])
+                self.assertIn("identity_reuse", payload["photo_modes"])
+                self.assertNotIn("openai_strict", payload["photo_modes"])
                 self.assertEqual(
                     set(payload["profiles"]),
                     {"openclaw", "hermes", "codex", "claude"},

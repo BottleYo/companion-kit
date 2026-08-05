@@ -203,11 +203,15 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         photo_modes_by_host = {
             "codex": {
                 "codex_native": {
-                    "title": "Codex 原生模式",
+                    "title": "Codex 内置生图",
                     "status": "无需单独配置",
-                    "description": "适合当前任务快速预览；画质由 Codex 管理，不作为 high 严格证明。",
+                    "description": "人物原型和日常照片都直接使用 Codex 内置 gpt-image-2，计入现有方案用量。",
                 },
-                "openai_strict": strict_mode(),
+                "identity_reuse": {
+                    "title": "固定形象复用",
+                    "status": "跨任务桥接开发中",
+                    "description": "当前任务可直接沿用最近确认的原型；跨任务参考图会继续通过 Codex 内置生图复用，不需要 API Key。",
+                },
             },
             "openclaw": {
                 "codex_native": {
@@ -242,8 +246,8 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             )
 
         return {
-            "version": "0.5.0",
-            "phase": "Codex、OpenClaw 与 Hermes 已有各自图片路径；Claude 暂保留安全规划。",
+            "version": "0.6.0-dev.1",
+            "phase": "Codex 只用内置生图；OpenClaw 与 Hermes 保留各自图片路径；Claude 暂保留安全规划。",
             "templates": [
                 template.to_dict() for template in self.server.store.templates()
             ],

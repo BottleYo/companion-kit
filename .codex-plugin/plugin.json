@@ -1,18 +1,28 @@
 {
   "name": "companion-kit",
-  "version": "0.5.0",
-  "description": "用本地面板分别管理虚拟陪伴人格，并安全生成固定人物照片。",
+  "version": "0.6.0-dev.1",
+  "description": "一次本地初始化后，在 Codex 中自然聊天、继续解决问题，并逐步接入固定人物照片。",
   "author": {
-    "name": "Companion Kit contributors"
+    "name": "Companion Kit contributors",
+    "url": "https://github.com/BottleYo/companion-kit"
   },
+  "homepage": "https://github.com/BottleYo/companion-kit#readme",
+  "repository": "https://github.com/BottleYo/companion-kit",
+  "license": "MIT",
+  "keywords": ["companion", "persona", "image", "codex"],
   "skills": "./skills/",
   "interface": {
     "displayName": "虚拟陪伴对象",
-    "shortDescription": "本地人格聊天与固定人物照片",
-    "longDescription": "用本地控制面和独立配置提供陪伴式表达；普通任务继续由原工具完成，只有明确照片命令才进入图片流程。支持 Codex、OpenClaw 与 Hermes 的不同图片路径，严格模式经单次确认后固定使用 gpt-image-2/high。",
+    "shortDescription": "自然陪你聊天，也照常帮你把事情做好",
+    "longDescription": "先在本地面板选一个通用模板并完成自己的配置。之后打开 Codex 新任务，它会安静读取人格和关系投影，不需要先输入 Skill 名称。普通问题继续由 Codex 完整处理；人物照片直接使用 Codex 内置生图，不需要 API Key 或 Provider 配置。",
     "developerName": "Companion Kit contributors",
     "category": "Productivity",
-    "capabilities": ["Local setup", "Chat", "Current-session image generation"],
-    "defaultPrompt": "使用 $virtual-companion；如果还没有默认配置，先问我是快速初始化还是打开本地管理面板。保留原有工具能力，只在我明确要求时进入当前任务照片流程。"
+    "capabilities": ["Local setup", "Natural conversation", "Codex task assistance", "Built-in image generation", "Relationship projection"],
+    "websiteURL": "https://github.com/BottleYo/companion-kit",
+    "defaultPrompt": [
+      "今天想随便聊聊，也有事的话就一起解决。",
+      "拍张照片给我。",
+      "陪我看看这个问题该怎么处理。"
+    ]
   }
 }
