@@ -1,5 +1,8 @@
 # Companion Kit
 
+> **发布状态：0.5.0 Developer Preview（开发者内测）**
+> 当前版本适合在隔离环境中联调，不面向普通用户承诺稳定服务。请先阅读[开发者内测指南](docs/DEVELOPER_PREVIEW.md)，尤其不要直接在私人会话、生产 IM 或高额度 API 账号中进行首次测试。
+
 Companion Kit 是一个轻量、可安装的虚拟陪伴示例：用通用模板建立人格和固定人物形象，同时保留 OpenClaw、Hermes、Codex 与 Claude 原有的问题解决能力。
 
 当前 `0.5.0` 已按宿主拆开：Codex 有原生预览和严格固定形象模式；OpenClaw 有宿主管理的原生快速模式，也可选择严格模式；Hermes 支持严格模式并只把成图交给当前入站会话；Claude 仍保持安全的照片计划。四者不需要同时安装或配置。
