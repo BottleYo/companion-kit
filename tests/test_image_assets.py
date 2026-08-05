@@ -7,6 +7,7 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from companion_kit.image_assets import ImageAssetError, ImageAssetStore
 from tests.png_fixture import tiny_png
@@ -83,6 +84,70 @@ class ImageAssetStoreTests(unittest.TestCase):
                     task_scope="wrong-task",
                 )
             self.assertEqual(len(list(store.root.rglob("pending.png"))), 1)
+
+    def test_codex_native_png_can_be_staged_from_a_safe_local_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            codex_home = base / "codex-home"
+            source = codex_home / "generated_images" / "codex-result.png"
+            source.parent.mkdir(parents=True)
+            secret_metadata = b"native-output-metadata"
+            source.write_bytes(tiny_png(metadata=secret_metadata))
+            store = ImageAssetStore(base / "assets")
+
+            with patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                candidate = store.store_candidate_file(
+                    profile_id="companion",
+                    identity_version=1,
+                    source_path=source,
+                    task_scope="codex-current-task",
+                )
+
+            self.assertTrue(candidate.path.is_file())
+            self.assertNotIn(secret_metadata, candidate.path.read_bytes())
+
+    @unittest.skipIf(os.name == "nt", "Windows 符号链接权限不稳定")
+    def test_candidate_file_rejects_symlink_and_non_png(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            codex_home = base / "codex-home"
+            generated = codex_home / "generated_images"
+            generated.mkdir(parents=True)
+            source = generated / "result.png"
+            source.write_bytes(tiny_png())
+            linked = generated / "linked.png"
+            linked.symlink_to(source)
+            jpeg = generated / "photo.jpg"
+            jpeg.write_bytes(b"not-a-png")
+            store = ImageAssetStore(base / "assets")
+
+            with patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                for unsafe in (linked, jpeg):
+                    with self.subTest(path=unsafe.name), self.assertRaises(ImageAssetError):
+                        store.store_candidate_file(
+                            profile_id="companion",
+                            identity_version=1,
+                            source_path=unsafe,
+                            task_scope="codex-current-task",
+                        )
+
+    def test_codex_candidate_rejects_png_outside_generated_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            codex_home = base / "codex-home"
+            (codex_home / "generated_images").mkdir(parents=True)
+            unrelated = base / "unrelated-private-photo.png"
+            unrelated.write_bytes(tiny_png())
+            store = ImageAssetStore(base / "assets")
+
+            with patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                with self.assertRaisesRegex(ImageAssetError, "generated_images"):
+                    store.store_candidate_file(
+                        profile_id="companion",
+                        identity_version=1,
+                        source_path=unrelated,
+                        task_scope="codex-current-task",
+                    )
 
     def test_transient_artifact_is_task_bound_and_deleted_after_delivery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

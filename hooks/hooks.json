@@ -1,5 +1,5 @@
 {
-  "description": "在 Codex 新任务开始时安静加载本地陪伴人格。",
+  "description": "在 Codex 新任务开始时安静加载本地陪伴人格，并记录当前任务图片工具的短期候选回执。",
   "hooks": {
     "SessionStart": [
       {
@@ -8,7 +8,19 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/codex_context.py\"",
             "timeout": 3,
-            "additionalContextLimit": 1800
+            "additionalContextLimit": 3200
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(?:image_gen__imagegen|mcp__image_gen__imagegen|imagegen)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/codex_image_receipt.py\"",
+            "timeout": 3
           }
         ]
       }

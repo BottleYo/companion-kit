@@ -131,9 +131,16 @@ def template_by_id(template_id: str) -> TemplateInfo:
 def load_template_profile(
     skill_root: str | Path,
     template: TemplateInfo,
+    *,
+    host: str | None = "codex",
 ) -> PersonaProfile:
     skill_root = Path(skill_root)
+    normalized_host = str(host or "codex").strip().lower()
+    if normalized_host not in _PROFILE_HOSTS:
+        raise InitializationError(f"不支持的宿主：{host}")
     template_root = (skill_root / "assets" / "templates").resolve()
+    if normalized_host != "codex":
+        template_root = (template_root / "legacy").resolve()
     template_path = (template_root / template.filename).resolve()
     if template_root not in template_path.parents:
         raise InitializationError("内置模板路径不安全")
@@ -165,7 +172,7 @@ def _toml_list(values: tuple[str, ...]) -> str:
     return "\n".join(lines)
 
 
-def render_profile(profile: PersonaProfile) -> str:
+def _render_legacy_profile(profile: PersonaProfile) -> str:
     return "\n".join(
         (
             "# 由 Companion Kit 初始化向导生成。",
@@ -189,6 +196,54 @@ def render_profile(profile: PersonaProfile) -> str:
             "[relationship]",
             f"starting_mode = {_toml_string(profile.relationship.starting_mode)}",
             f"romance_enabled = {str(profile.relationship.romance_enabled).lower()}",
+            "",
+        )
+    )
+
+
+def render_profile(profile: PersonaProfile) -> str:
+    if profile.schema_version < 3:
+        return _render_legacy_profile(profile)
+    return "\n".join(
+        (
+            "# 由 Companion Kit Persona 面板生成。",
+            "# 请勿写入密钥、聊天记录、真实照片路径或私人素材。",
+            "schema_version = 3",
+            f"id = {_toml_string(profile.id)}",
+            f"display_name = {_toml_string(profile.display_name)}",
+            f"template_id = {_toml_string(profile.template_id)}",
+            f"intent_summary = {_toml_string(profile.intent_summary)}",
+            "",
+            "[persona]",
+            f"traits = {_toml_list(profile.traits)}",
+            f"speaking_style = {_toml_string(profile.speaking_style)}",
+            f"boundaries = {_toml_list(profile.boundaries)}",
+            f"background = {_toml_string(profile.background)}",
+            f"values = {_toml_list(profile.values)}",
+            f"interests = {_toml_list(profile.interests)}",
+            f"task_style = {_toml_string(profile.task_style)}",
+            "",
+            "[appearance]",
+            f"direction = {_toml_string(profile.visual.appearance)}",
+            f"default_style = {_toml_string(profile.visual.default_style)}",
+            f"default_hairstyle = {_toml_string(profile.visual.default_hairstyle)}",
+            f"default_expression = {_toml_string(profile.visual.default_expression)}",
+            f"default_makeup = {_toml_string(profile.visual.default_makeup)}",
+            f"default_wardrobe = {_toml_string(profile.visual.default_wardrobe)}",
+            "",
+            "[visual_identity]",
+            f"status = {_toml_string(profile.visual.identity_status)}",
+            f"facial_anchor = {_toml_string(profile.visual.identity_anchor)}",
+            f"identity_version = {profile.visual.identity_version}",
+            f"reference_ids = {_toml_list(profile.visual.reference_ids)}",
+            "",
+            "[relationship]",
+            f"starting_mode = {_toml_string(profile.relationship.starting_mode)}",
+            f"romance_enabled = {str(profile.relationship.romance_enabled).lower()}",
+            "",
+            "[provenance]",
+            f"user_fields = {_toml_list(profile.provenance.user_fields)}",
+            f"generated_fields = {_toml_list(profile.provenance.generated_fields)}",
             "",
         )
     )
@@ -250,7 +305,8 @@ def initialize_profile(
 ) -> InitializationResult:
     root = Path(skill_root).resolve()
     template = template_by_id(template_id)
-    source_profile = load_template_profile(root, template)
+    normalized_host = str(host or "codex").strip().lower()
+    source_profile = load_template_profile(root, template, host=normalized_host)
     try:
         relationship = RelationshipPolicy(
             starting_mode=starting_mode or source_profile.relationship.starting_mode,

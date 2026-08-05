@@ -4,16 +4,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    <title>Companion Kit · 本地陪伴对象面板</title>
+    <title>Companion Kit · Codex Persona 面板</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/app.js" defer></script>
   </head>
   <body>
     <header class="hero">
       <div class="hero__copy">
-        <p class="eyebrow">本地运行 · 私有保存 · 不上传聊天</p>
-        <h1>创建一个属于你的<br>虚拟陪伴对象</h1>
-        <p class="hero__lead">选一种相处风格，起一个称呼，然后安装到你常用的 AI 工具里。</p>
+        <p class="eyebrow">Codex 优先 · 本地保存 · 不碰全局记忆</p>
+        <h1>先用一句话，<br>认识未来的 TA</h1>
+        <p class="hero__lead">你只需要说一个大概。剩下的人格、聊天方式和做事习惯，我们先帮你补完整，再由你决定要不要留下。</p>
       </div>
       <div class="hero__mark" aria-hidden="true">
         <span class="hero__orb"></span>
@@ -23,127 +23,162 @@
 
     <main>
       <section id="authError" class="notice notice--error" hidden>
-        <strong>这个面板链接已失效。</strong>
-        <span>请回到终端重新运行面板命令。</span>
+        <strong>这个面板链接已经失效。</strong>
+        <span>请重新启动 Companion Kit 面板。</span>
       </section>
 
-      <section class="panel" aria-labelledby="setupTitle">
+      <section class="panel" aria-labelledby="createTitle">
         <div class="section-heading">
           <div>
-            <p class="step">第 1 步</p>
-            <h2 id="setupTitle">选择工具和相处风格</h2>
+            <p class="step">第 1 步 · 说个大概</p>
+            <h2 id="createTitle">你希望 TA 是怎样的人？</h2>
           </div>
           <span id="profileStatus" class="status-chip">读取中</span>
         </div>
-        <div class="host-choice">
-          <label for="profileHost">你准备在哪个工具里使用？</label>
-          <select id="profileHost">
-            <option value="codex">Codex</option>
-            <option value="openclaw">OpenClaw</option>
-            <option value="hermes">Hermes</option>
-            <option value="claude">Claude</option>
-          </select>
-          <p id="hostChoiceHint" class="hint">每个工具各自保存，选择一个就能开始。</p>
+
+        <label class="prompt-box" for="personaDescription">
+          <span>一句话就够了</span>
+          <textarea id="personaDescription" maxlength="180" rows="3" placeholder="例如：高冷御姐，成熟自信，聊天别太黏，但解决问题要利落"></textarea>
+        </label>
+        <div class="example-row" aria-label="描述示例">
+          <button type="button" data-example="高冷御姐，成熟自信，聊天别太黏，但解决问题要利落">高冷御姐</button>
+          <button type="button" data-example="温柔治愈，善于倾听，不说空泛安慰，也能认真帮我解决问题">温柔治愈</button>
+          <button type="button" data-example="有趣松弛，偶尔轻轻吐槽，但该认真时非常靠谱">松弛有趣</button>
         </div>
+
+        <div class="divider"><span>或者，从一个简单起点开始</span></div>
         <div id="templateGrid" class="template-grid" aria-live="polite"></div>
 
-        <div class="name-row">
-          <label for="displayName">你想怎么称呼 TA？</label>
-          <div class="name-row__controls">
-            <input id="displayName" maxlength="40" autocomplete="off" placeholder="例如：小禾">
-            <button id="saveProfile" class="button button--primary" type="button">保存陪伴对象</button>
-          </div>
-          <div class="relationship-settings" aria-label="关系偏好">
-            <label>
-              <span>相处起点</span>
-              <select id="startingMode">
-                <option value="natural">从自然认识开始（推荐）</option>
-                <option value="familiar">像已经熟悉一阵</option>
-              </select>
-            </label>
-            <label class="toggle-row">
-              <input id="romanceEnabled" type="checkbox">
-              <span>
-                允许自然发展为恋爱式陪伴
-                <small>默认关闭；开启也不会立刻变成恋人，仍需信任与亲近逐步形成。</small>
-              </span>
-            </label>
-          </div>
-          <p id="saveHint" class="hint">配置只保存在这台电脑的私有目录。</p>
+        <div class="create-actions">
+          <label for="displayName">
+            <span>怎么称呼 TA？</span>
+            <input id="displayName" maxlength="40" autocomplete="off" placeholder="可以稍后再改">
+          </label>
+          <button id="previewPersona" class="button button--primary" type="button">帮我补完整</button>
         </div>
+        <p class="hint">这里只生成草稿，不会直接保存。模板只是起点，不会限制你想要的人设。</p>
       </section>
 
-      <section class="preview-layout" aria-labelledby="previewTitle">
-        <article class="panel preview-card">
-          <div class="section-heading section-heading--compact">
-            <div>
-              <p class="step">即时预览</p>
-              <h2 id="previewTitle">TA 会是什么样</h2>
-            </div>
+      <section id="previewSection" class="panel" aria-labelledby="previewTitle">
+        <div class="section-heading">
+          <div>
+            <p class="step">第 2 步 · 看看合不合拍</p>
+            <h2 id="previewTitle">这就是目前的 TA</h2>
           </div>
-          <div class="identity-row">
-            <div id="avatarLetter" class="avatar-letter" aria-hidden="true">伴</div>
-            <div>
-              <h3 id="previewName">尚未选择</h3>
-              <p id="previewTraits" class="muted">选择模板后，这里会显示人格特点。</p>
-            </div>
-          </div>
-          <dl class="preview-details">
-            <div>
-              <dt>聊天方式</dt>
-              <dd id="previewSpeech">—</dd>
-            </div>
-            <div>
-              <dt>固定形象</dt>
-              <dd id="previewAppearance">—</dd>
-            </div>
-            <div>
-              <dt>照片质感</dt>
-              <dd id="previewStyle">—</dd>
-            </div>
-            <div>
-              <dt>相处方式</dt>
-              <dd id="previewRelationship">从自然认识开始</dd>
-            </div>
-          </dl>
-        </article>
+          <span id="draftStatus" class="status-chip status-chip--soft">等待补全</span>
+        </div>
 
-        <article class="panel future-card">
-          <p id="photoHostLabel" class="step">Codex 图片能力</p>
-          <h2 id="photoModeHeading">一种生图方式，直接使用 Codex</h2>
-          <p id="photoIntro">人物原型和日常照片都使用 Codex 内置生图，不需要 API Key，也不需要选择 Provider。</p>
-          <div id="photoModes" class="photo-modes" aria-label="Codex 图片模式">
-            <div>
-              <strong id="nativeModeTitle">Codex 内置生图</strong>
-              <span id="nativeModeStatus">读取中</span>
-              <small id="nativeModeDescription"></small>
-            </div>
-            <div>
-              <strong id="strictModeTitle">固定形象复用</strong>
-              <span id="strictModeStatus">读取中</span>
-              <small id="strictModeDescription"></small>
-            </div>
+        <div class="persona-summary">
+          <div id="avatarLetter" class="avatar-letter" aria-hidden="true">伴</div>
+          <div>
+            <h3 id="previewName">还没有草稿</h3>
+            <p id="previewIntent" class="muted">先在上面说说你喜欢的感觉。</p>
           </div>
-          <span id="referenceStatus" class="coming-soon">尚未固定人物原型</span>
-          <p id="photoHelp" class="photo-help">直接说“拍张照片给我”即可。固定人物只是参考图复用，不会切换到另一套 API 流程。</p>
-        </article>
+        </div>
+
+        <div class="editor-grid">
+          <label>
+            <span>性格关键词</span>
+            <input id="traits" autocomplete="off" placeholder="用逗号分开">
+          </label>
+          <label>
+            <span>在意的事</span>
+            <input id="values" autocomplete="off" placeholder="例如：真诚、尊重、分寸">
+          </label>
+          <label class="editor-grid__wide">
+            <span>聊天时是什么感觉</span>
+            <textarea id="speakingStyle" rows="3"></textarea>
+          </label>
+          <label class="editor-grid__wide">
+            <span>TA 自己的生活底色</span>
+            <textarea id="background" rows="3"></textarea>
+            <small>只写人格和生活基调，不会自动编造你们已经发生过的故事。</small>
+          </label>
+          <label>
+            <span>平时感兴趣的事</span>
+            <input id="interests" autocomplete="off" placeholder="用逗号分开">
+          </label>
+          <label>
+            <span>帮你做事时</span>
+            <textarea id="taskStyle" rows="3"></textarea>
+          </label>
+          <label class="editor-grid__wide">
+            <span>外在气质方向</span>
+            <textarea id="appearance" rows="3"></textarea>
+            <small>这是气质方向，不是固定脸，也不会把发型、妆容和衣服永远锁死。</small>
+          </label>
+        </div>
+
+        <details class="advanced-editor">
+          <summary>继续调整照片里的默认感觉</summary>
+          <div class="editor-grid editor-grid--inside">
+            <label class="editor-grid__wide">
+              <span>照片质感</span>
+              <textarea id="defaultStyle" rows="2"></textarea>
+            </label>
+            <label><span>发型默认</span><input id="defaultHairstyle"></label>
+            <label><span>表情默认</span><input id="defaultExpression"></label>
+            <label><span>妆容默认</span><input id="defaultMakeup"></label>
+            <label><span>服饰默认</span><input id="defaultWardrobe"></label>
+          </div>
+        </details>
+
+        <div class="relationship-settings" aria-label="关系偏好">
+          <label>
+            <span>相处起点</span>
+            <select id="startingMode">
+              <option value="natural">从自然认识开始（推荐）</option>
+              <option value="familiar">像已经熟悉一阵</option>
+            </select>
+          </label>
+          <label class="toggle-row">
+            <input id="romanceEnabled" type="checkbox">
+            <span>
+              允许自然发展为恋爱式陪伴
+              <small>开启不等于立刻成为恋人，关系仍会受到信任、边界和互动状态影响。</small>
+            </span>
+          </label>
+        </div>
+
+        <div class="save-row">
+          <div>
+            <strong id="identityStatus">人物长相：暂时跳过</strong>
+            <p>现在不确定长什么样完全没关系。第一次要照片时，TA 会自然地陪你选参考图、按描述生成，或者自己决定一个候选形象；只有你确认后才固定脸。</p>
+          </div>
+          <button id="saveProfile" class="button button--primary" type="button">确认并保存</button>
+        </div>
+        <p id="saveHint" class="hint">配置只保存在这台电脑的 Codex 私有目录。</p>
+      </section>
+
+      <section class="panel codex-card" aria-labelledby="photoTitle">
+        <div>
+          <p class="step">Codex 里的照片</p>
+          <h2 id="photoTitle">不用 API Key，也不用学习提示词</h2>
+          <p>直接说“拍张照片给我”就行。Codex 使用自己的内置生图能力；Companion Kit 只负责把 Persona、关系边界、固定脸和本次场景组合好。</p>
+        </div>
+        <div class="capability-list">
+          <div><strong>还没固定脸</strong><span>先生成或上传候选，等你确认</span></div>
+          <div><strong>已经固定脸</strong><span>每次带上同一参考，只锁脸部身份</span></div>
+          <div><strong>参考不可用</strong><span>停止并说明，不偷偷换一张脸</span></div>
+        </div>
+        <span id="referenceStatus" class="coming-soon">正在读取人物原型状态</span>
       </section>
 
       <section class="panel" aria-labelledby="installTitle">
         <div class="section-heading">
           <div>
-            <p class="step">第 2 步</p>
-            <h2 id="installTitle">安装到常用工具</h2>
+            <p class="step">第 3 步 · 开始使用</p>
+            <h2 id="installTitle">先安装到 Codex</h2>
           </div>
           <span class="status-chip status-chip--soft">安装前会再次确认</span>
         </div>
-        <p class="section-intro">消息型工具和桌面型工具使用不同安装方式，面板会自动选择正确路径。</p>
+        <p class="section-intro">本轮优先打磨 Codex。每个宿主仍有自己独立的 Persona；安装到其他工具不会自动复制这份 Codex 人格。</p>
         <div id="hostGrid" class="host-grid" aria-live="polite"></div>
       </section>
 
       <section class="privacy-strip" aria-label="隐私说明">
         <span aria-hidden="true">●</span>
-        <p><strong>隐私边界：</strong>不读取现有 SOUL、USER、记忆、聊天记录或照片目录；Codex 图片只在当前任务使用内置生图能力。OpenClaw / Hermes 的独立严格适配仍按各自授权执行，成图只交给当前入站会话。</p>
+        <p><strong>隐私边界：</strong>不读取现有私人 Persona、SOUL、USER、记忆、聊天记录或照片目录；不修改 Codex 全局个性化和全局记忆。人物配置、候选原型与确认后的参考图都保存在项目自己的私有区域。</p>
       </section>
     </main>
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from .config import ConfigError, load_profile
+from .codex_image_receipts import CodexImageReceiptError, CodexImageReceiptStore
 from .codex_photo import CodexPhotoWorkflow, PhotoWorkflowError
 from .contracts import HostCapabilities, HostClass, RequestEnvelope
 from .event_adapter import openclaw_native_preview_request
@@ -215,8 +216,15 @@ def _parser() -> argparse.ArgumentParser:
     photo_delivered.add_argument("--artifact-id", required=True)
     photo_delivered.add_argument("--task-scope", required=True)
 
-    identity = subparsers.add_parser("identity", help="已停用的旧 Codex API 身份入口")
+    identity = subparsers.add_parser("identity", help="管理 Codex 内置生图产生的人物原型")
     identity_commands = identity.add_subparsers(dest="identity_command", required=True)
+    identity_stage = identity_commands.add_parser(
+        "stage-native",
+        help="把 Codex 当前任务中的 PNG 暂存为待确认人物原型",
+    )
+    identity_stage.add_argument("--config", help="配置路径；默认使用 Codex 独立配置")
+    identity_stage.add_argument("--file", required=True, help="当前任务真实生成或上传的 PNG")
+    identity_stage.add_argument("--task-scope", required=True)
     identity_confirm = identity_commands.add_parser(
         "confirm",
         help="把当前任务候选图固定为唯一身份参考",
@@ -608,7 +616,13 @@ def main(argv: list[str] | None = None) -> int:
                     "api_key_required": False,
                     "provider_choice_required": False,
                     "cross_task_reference_bridge": (
-                        "ready" if reference_ready else "in_development"
+                        "ready"
+                        if reference_ready
+                        else (
+                            "reference_unavailable"
+                            if reference_configured
+                            else "waiting_for_identity_confirmation"
+                        )
                     ),
                 }
                 print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -624,9 +638,66 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if args.command == "identity":
-            raise PhotoWorkflowError(
-                "Codex 已停用独立 API 身份流程；请直接使用 Codex 内置生图能力"
+            profile_store, snapshot = _profile_snapshot(args.config)
+            if args.identity_command == "stage-native":
+                if snapshot.profile.visual.is_locked:
+                    raise PhotoWorkflowError(
+                        "当前人物脸部身份已经固定；如需更换必须先走明确的身份轮换流程"
+                    )
+                image_bytes = CodexImageReceiptStore().consume(
+                    session_id=args.task_scope,
+                    source_path=args.file,
+                )
+                candidate = _image_assets().store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=snapshot.profile.visual.identity_version,
+                    image_bytes=image_bytes,
+                    task_scope=args.task_scope,
+                    source="codex_native",
+                )
+                print(
+                    json.dumps(
+                        {
+                            "stage": "identity_candidate",
+                            "candidate_id": candidate.candidate_id,
+                            "profile_version": snapshot.version,
+                            "identity_version": snapshot.profile.visual.identity_version,
+                            "next_action": "只展示候选；用户明确确认后再固定",
+                            "api_key_required": False,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                return 0
+
+            if snapshot.version != args.profile_version:
+                raise ProfileStoreError("Codex Persona 已变化，请重新生成并确认候选原型")
+            assets = _image_assets()
+            reference = assets.confirm_candidate(
+                candidate_id=args.candidate_id,
+                profile_id=snapshot.profile.id,
+                identity_version=snapshot.profile.visual.identity_version,
+                task_scope=args.task_scope,
             )
+            bound = profile_store.bind_reference(
+                reference_id=reference.reference_id,
+                identity_version=snapshot.profile.visual.identity_version,
+                expected_version=snapshot.version,
+            )
+            print(
+                json.dumps(
+                    {
+                        "stage": "identity_confirmed",
+                        "reference_id": reference.reference_id,
+                        "profile_version": bound.version,
+                        "api_key_required": False,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
 
         if args.target_root:
             installed = install_skill(
@@ -662,6 +733,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except (
         AuthorizationError,
+        CodexImageReceiptError,
         ConfigError,
         ImageApiError,
         ImageAssetError,

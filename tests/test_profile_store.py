@@ -40,6 +40,7 @@ class ProfileStoreTests(unittest.TestCase):
                 bound.profile.visual.reference_ids,
                 ("ref_1234567890abcdef",),
             )
+            self.assertEqual(bound.profile.visual.identity_status, "locked")
 
     def test_catalog_exposes_only_generic_template_previews(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -122,9 +123,64 @@ class ProfileStoreTests(unittest.TestCase):
                 display_name="阿序",
                 expected_version=first.version,
             )
-            self.assertEqual(updated.profile.id, "calm_partner")
+            self.assertEqual(updated.profile.id, "companion")
+            self.assertEqual(updated.profile.template_id, "calm_partner")
             self.assertEqual(updated.profile.display_name, "阿序")
             self.assertNotEqual(updated.version, first.version)
+
+    def test_one_sentence_draft_can_be_previewed_then_saved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ProfileStore(
+                skill_root=SKILL_ROOT,
+                profile_path=Path(tmp).resolve() / "default.toml",
+            )
+
+            draft = store.preview_draft(
+                description="高冷御姐，成熟自信，做事利落",
+                display_name="岚",
+            )
+            saved = store.save_draft(
+                description="高冷御姐，成熟自信，做事利落",
+                display_name="岚",
+                expected_version=None,
+            )
+
+            self.assertEqual(draft.profile.display_name, "岚")
+            self.assertEqual(saved.profile.template_id, "custom")
+            self.assertIn("成熟", saved.profile.traits)
+            self.assertEqual(saved.profile.visual.identity_status, "unset")
+
+    def test_recompletion_keeps_user_edits_and_confirmed_face(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ProfileStore(
+                skill_root=SKILL_ROOT,
+                profile_path=Path(tmp).resolve() / "default.toml",
+            )
+            first = store.save_draft(
+                description="高冷御姐",
+                display_name="岚",
+                overrides={"speaking_style": "少说套话，偶尔毒舌。"},
+                expected_version=None,
+            )
+            bound = store.bind_reference(
+                reference_id="ref_1234567890abcdef",
+                identity_version=1,
+                expected_version=first.version,
+            )
+
+            revised = store.save_draft(
+                description="再温柔一点，也喜欢散步",
+                display_name=None,
+                expected_version=bound.version,
+            )
+
+            self.assertEqual(revised.profile.speaking_style, "少说套话，偶尔毒舌。")
+            self.assertIn("温柔", revised.profile.traits)
+            self.assertEqual(revised.profile.visual.identity_status, "locked")
+            self.assertEqual(
+                revised.profile.visual.reference_ids,
+                ("ref_1234567890abcdef",),
+            )
 
     def test_relationship_choices_are_saved_and_can_be_changed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

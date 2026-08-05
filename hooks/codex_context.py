@@ -7,6 +7,9 @@ from pathlib import Path
 import sys
 
 
+sys.dont_write_bytecode = True
+
+
 def _plugin_root() -> Path:
     configured = os.environ.get("PLUGIN_ROOT", "").strip()
     return Path(configured).resolve() if configured else Path(__file__).resolve().parents[1]
@@ -28,7 +31,16 @@ def main() -> int:
         result = {
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
-                "additionalContext": runtime.render(),
+                "additionalContext": runtime.render(
+                    control_path=(
+                        _plugin_root()
+                        / "skills"
+                        / "virtual-companion"
+                        / "scripts"
+                        / "companionctl.py"
+                    ),
+                    task_scope=str(payload.get("session_id") or ""),
+                ),
             }
         }
         sys.stdout.write(json.dumps(result, ensure_ascii=False))

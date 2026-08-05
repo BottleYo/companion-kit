@@ -30,7 +30,7 @@ class VersionTests(unittest.TestCase):
 
         self.assertEqual(companion_kit.__version__, project_version)
         self.assertEqual(codex["version"], project_version)
-        self.assertEqual(claude["version"], project_version)
+        self.assertEqual(claude["version"], "0.6.0-dev.1")
 
     def test_codex_plugin_uses_quiet_runtime_and_explicit_skill(self) -> None:
         manifest = json.loads(
@@ -46,10 +46,11 @@ class VersionTests(unittest.TestCase):
         hooks = json.loads(
             (PROJECT_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(set(hooks["hooks"]), {"SessionStart"})
+        self.assertEqual(set(hooks["hooks"]), {"SessionStart", "PostToolUse"})
         serialized_hooks = json.dumps(hooks, ensure_ascii=False)
         self.assertNotIn("statusMessage", serialized_hooks)
         self.assertNotIn("UserPromptSubmit", serialized_hooks)
+        self.assertIn("image_gen__imagegen", serialized_hooks)
 
         agent_manifest = (
             PROJECT_ROOT / "skills" / "virtual-companion" / "agents" / "openai.yaml"
