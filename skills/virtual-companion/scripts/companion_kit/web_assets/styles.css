@@ -207,6 +207,7 @@ input:not([type="checkbox"]):focus, textarea:focus, select:focus {
 .button--primary { background: var(--accent); color: white; }
 .button--primary:hover:not(:disabled) { background: var(--accent-deep); }
 .button--secondary { background: #ecece5; color: var(--ink); }
+.button--quiet { border: 1px solid var(--line); background: transparent; color: var(--muted); }
 
 .hint, .muted, .section-intro, .editor-grid small { color: var(--muted); }
 .hint { margin: 10px 0 0; font-size: 0.82rem; line-height: 1.6; }
@@ -255,6 +256,80 @@ input:not([type="checkbox"]):focus, textarea:focus, select:focus {
 .save-row p { max-width: 760px; margin: 7px 0 0; color: var(--muted); line-height: 1.65; font-size: 0.9rem; }
 .save-row .button { flex: 0 0 auto; }
 
+.identity-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 22px;
+  align-items: stretch;
+}
+.identity-controls { display: grid; align-content: start; gap: 14px; }
+.identity-dropzone {
+  min-height: 174px;
+  border: 1.5px dashed #a9bdb2;
+  border-radius: 18px;
+  background: #f8fcf9;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+.identity-dropzone:hover, .identity-dropzone:focus, .identity-dropzone--active {
+  border-color: var(--accent);
+  background: #edf7f1;
+  outline: none;
+  transform: translateY(-1px);
+}
+.identity-dropzone--disabled { cursor: not-allowed; opacity: 0.58; transform: none; }
+.identity-dropzone__icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 1.4rem;
+}
+.identity-dropzone small, .identity-consent small { color: var(--muted); line-height: 1.55; }
+.identity-consent { border: 1px solid var(--line); border-radius: 14px; background: #fffefb; padding: 13px; }
+.identity-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.identity-preview {
+  min-height: 300px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #f2f0e8;
+  padding: 14px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  overflow: hidden;
+}
+.identity-preview img {
+  width: 100%;
+  height: min(420px, 48vw);
+  min-height: 240px;
+  border-radius: 13px;
+  object-fit: contain;
+  background: #e8e6de;
+}
+.identity-preview__placeholder {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+.identity-preview__placeholder > span { color: var(--accent); font-size: 2.4rem; }
+.identity-preview__placeholder small { max-width: 360px; line-height: 1.6; }
+.identity-preview > p { margin: 0; color: var(--muted); font-size: 0.84rem; line-height: 1.55; }
+
 .codex-card { display: grid; grid-template-columns: 1fr 0.9fr; gap: 32px; align-items: start; }
 .codex-card h2 + p { color: var(--muted); line-height: 1.75; }
 .capability-list { display: grid; gap: 10px; }
@@ -291,6 +366,8 @@ input:not([type="checkbox"]):focus, textarea:focus, select:focus {
   .codex-card .coming-soon { grid-column: auto; }
   .host-grid { grid-template-columns: 1fr; }
   .host-card--primary { grid-column: auto; }
+  .identity-setup { grid-template-columns: 1fr; }
+  .identity-preview img { height: min(520px, 74vw); }
 }
 
 @media (max-width: 620px) {
@@ -301,6 +378,11 @@ input:not([type="checkbox"]):focus, textarea:focus, select:focus {
   .editor-grid__wide { grid-column: auto; }
   .create-actions { grid-template-columns: 1fr; }
   .save-row .button { width: 100%; }
+  .identity-actions { display: grid; grid-template-columns: 1fr; }
+  .identity-actions .button { width: 100%; }
+  .identity-dropzone { min-height: 150px; padding: 20px 16px; }
+  .identity-preview { min-height: 260px; }
+  .identity-preview img { min-height: 210px; height: 78vw; }
   .host-card { grid-template-columns: auto 1fr; }
   .host-card button { grid-column: 1 / -1; width: 100%; }
 }

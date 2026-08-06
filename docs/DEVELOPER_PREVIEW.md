@@ -2,7 +2,7 @@
 
 ## 当前定位
 
-`0.7.0-dev.3` 是 Codex-first Developer Preview，不是面向普通用户的稳定版本。它适合愿意在测试环境验证初始化、Plugin 安装、安静 Persona、Codex 内置生图和固定脸部身份的开发者。
+`0.7.0-dev.4` 是 Codex-first Developer Preview，不是面向普通用户的稳定版本。它适合愿意在测试环境验证初始化、Plugin 安装、安静 Persona、Codex 内置生图和固定脸部身份的开发者。
 
 当前开发主线已经调整为 Codex 优先。普通用户内测暂缓，先用未参与开发的 Codex 环境验证“一次面板初始化，后续自然聊天、直接拍照、继续解决问题”的完整体验。OpenClaw、Hermes 与 Claude 暂时只做现有能力回归和安全修复。
 
@@ -12,6 +12,7 @@
 - 一句话 Persona 草稿、可选模板、预览、调整和用户字段保留；
 - Codex 完整 Plugin 安装、`SessionStart` Hook 和无 Skill 的自然聊天入口；
 - Codex 内置图片生成，不需要 API Key 或 Provider；
+- 面板直接选择 PNG、JPG 或 WebP 参考图，浏览器预览、使用权确认、候选暂存和二次确认；
 - Codex 当前任务图片回执、候选 PNG 暂存、明确确认、唯一身份参考和新任务取回；
 - 图片清洗、任务作用域绑定、固定身份参考和失败关闭。
 
@@ -60,6 +61,8 @@ export COMPANION_HOME="$COMPANION_TEST_HOME"
 ### 第二轮：Codex 照片闭环
 
 - 不设置 `OPENAI_API_KEY`，确认图片直接计入当前 Codex 方案用量；
+- 保存 Persona 后，在面板选择一张不含私人信息的虚构成年人测试图；检查未确认使用权时不能上传，上传后仍为候选，点击“设为固定主脸”后才变为 `locked`；
+- 新建另一份测试 Persona，跳过面板形象设置，继续验证聊天入口；
 - 在 Codex 当前任务用内置生图生成一张虚构成年人候选，或先上传有权使用的参考再生成候选；检查图片工具回执已被同任务 Hook 识别；
 - 确认前检查本地状态仍为 `unset`，明确确认后检查状态变为 `locked`；
 - 主脸确认后，分别明确提出增强侧脸和全身稳定性，逐张生成并确认 `profile_face` 与 `body_shape` 候选；检查 Persona 仍只保存原主脸 ID，面板只显示“已增强”与角色状态，不返回 ID、哈希或路径；
