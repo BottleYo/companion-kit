@@ -2,7 +2,7 @@
 
 ## 当前定位
 
-`0.7.0-dev.2` 是 Codex-first Developer Preview，不是面向普通用户的稳定版本。它适合愿意在测试环境验证初始化、Plugin 安装、旧 Skill 迁移、安静 Persona、Codex 内置生图和固定脸部身份的开发者。
+`0.7.0-dev.3` 是 Codex-first Developer Preview，不是面向普通用户的稳定版本。它适合愿意在测试环境验证初始化、Plugin 安装、安静 Persona、Codex 内置生图和固定脸部身份的开发者。
 
 当前开发主线已经调整为 Codex 优先。普通用户内测暂缓，先用未参与开发的 Codex 环境验证“一次面板初始化，后续自然聊天、直接拍照、继续解决问题”的完整体验。OpenClaw、Hermes 与 Claude 暂时只做现有能力回归和安全修复。
 
@@ -11,7 +11,6 @@
 - Codex 独立 Persona；其他宿主原有配置不会被面板保存操作修改；
 - 一句话 Persona 草稿、可选模板、预览、调整和用户字段保留；
 - Codex 完整 Plugin 安装、`SessionStart` Hook 和无 Skill 的自然聊天入口；
-- 装过旧版独立 Skill 时，安装器先做可恢复备份；Plugin 安装失败后原位恢复，Persona 数据不移动；
 - Codex 内置图片生成，不需要 API Key 或 Provider；
 - Codex 当前任务图片回执、候选 PNG 暂存、明确确认、唯一身份参考和新任务取回；
 - 图片清洗、任务作用域绑定、固定身份参考和失败关闭。
@@ -81,7 +80,7 @@ export COMPANION_HOME="$COMPANION_TEST_HOME"
 
 - Codex 使用 Plugin 管理界面或 `codex plugin remove` 移除 `companion-kit`；其他宿主使用各自的 Skill 管理方式；
 - 确认临时数据中没有需要保留的参考图后，将整个测试数据目录移到系统废纸篓；
-- 恢复测试前记录的宿主环境；需要回退旧版时，从 `legacy-skills` 备份区手动恢复原目录；
+- 恢复测试前记录的宿主环境和安装状态；
 - 不要因为卸载 Plugin 或 Skill 就自动删除非测试人格或图片数据。
 
 当前版本没有自动卸载器，因此每次内测应由能够完成上述恢复操作的人陪同。

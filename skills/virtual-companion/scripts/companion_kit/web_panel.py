@@ -227,7 +227,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         }
 
         return {
-            "version": "0.7.0-dev.2",
+            "version": "0.7.0-dev.3",
             "phase": "本轮只优化 Codex Persona 创建、聊天与内置生图体验；其他宿主配置保持独立。",
             "templates": [
                 template.to_dict() for template in self.server.store.templates()

@@ -87,7 +87,7 @@
 
 ## 阶段 4：Codex 自然体验闭环（当前 P0）
 
-当前进度：`0.7.0-dev.2` 已完成完整 Plugin 安装、旧 Skill 可恢复迁移、安静的 `SessionStart` Persona 加载、一句话 Persona v3 草稿、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack 和跨任务取回的本地链路。Codex Plugin 不再暴露独立 Skill。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
+当前进度：`0.7.0-dev.3` 已完成完整 Plugin 安装、安静的 `SessionStart` Persona 加载、一句话 Persona v3 草稿、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack 和跨任务取回的本地链路。Codex Plugin 不再暴露独立 Skill，也不检查或改动用户级 Skill 目录。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
 
 ### 4.1 一次性初始化
 
