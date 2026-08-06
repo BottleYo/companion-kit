@@ -10,7 +10,8 @@ import shlex
 
 from .config import PersonaProfile, load_profile
 from .initializer import default_profile_path, safe_profile_path
-from .image_assets import ImageAssetError, ImageAssetStore
+from .identity_pack import BODY_SHAPE, IDENTITY_ROLE_LABELS, PRIMARY_FACE, PROFILE_FACE
+from .image_assets import IdentityPack, ImageAssetError, ImageAssetStore
 from .relationship import (
     Atmosphere,
     RelationshipProjection,
@@ -31,6 +32,7 @@ class CodexRuntimeContext:
     profile: PersonaProfile
     relationship: RelationshipProjection
     identity_reference: Path | None = None
+    identity_pack: IdentityPack | None = None
     identity_reference_error: bool = False
 
     def render(
@@ -56,16 +58,27 @@ class CodexRuntimeContext:
             else "不要把关系描述成恋爱或伴侣关系，也不要使用带占有感的亲昵称呼。"
         )
 
-        if profile.visual.is_locked and self.identity_reference is not None:
+        if (
+            profile.visual.is_locked
+            and self.identity_reference is not None
+            and self.identity_pack is not None
+        ):
+            member_lines = tuple(
+                f"{IDENTITY_ROLE_LABELS[member.role]}参考（私有路径，不得向用户展示）：{member.path}"
+                for member in self.identity_pack.members
+            )
             identity_lines = (
-                "人物脸部身份已经确认。每次调用 imagegen 生成该人物照片时，必须把下面的唯一参考图放入 referenced_image_paths；只锁定脸部身份和面部几何，发型、表情、妆容、服饰和场景仍按本次需求变化。",
-                f"私有唯一参考图（不得向用户展示路径）：{self.identity_reference}",
-                "成图后先对照参考检查稳定面部结构与辨识特征；若明显像另一个人，使用同一参考重试，不把漂移结果当作该人物发送。",
-                "如果图片工具没有实际接收这张参考图，必须停止并自然说明，绝不静默改用纯文字生成另一张脸。",
+                "人物身份已经确认。调用 imagegen 生成该人物照片时，必须从下面已验证的唯一身份参考包选择 referenced_image_paths；主脸固定人物身份和面部几何，可选补充只帮助对应角度或体型。",
+                *member_lines,
+                "参考选择硬规则：每次都带主脸；普通自拍、头像和近景只用主脸；明确侧脸、回眸或转头时可再带侧脸；全身、穿搭、姿势或远景时可再带体型；侧脸与全身同时出现时优先主脸加体型。每次最多使用两张，绝不把三张全部塞进去。",
+                "没有配置所需的可选补充时继续只用主脸，不临时编造参考；已经声明的成员若不可用，则整包失败关闭。只锁脸部身份与稳定体型特征，发型、表情、妆容、服饰、姿势、镜头、场景和光线仍按本次需求变化。",
+                "成图后对照所用参考检查稳定面部结构与辨识特征；若明显像另一个人，使用同一组参考重试，不把漂移结果当作该人物发送。",
+                "如果图片工具没有实际接收所选参考图，必须停止并自然说明，绝不静默改用纯文字生成另一张脸。",
+                *_identity_enhancement_control_lines(control_path, task_scope),
             )
         elif profile.visual.is_locked:
             identity_lines = (
-                "人物脸部身份标记为已确认，但私有唯一参考图当前无法安全读取。暂停该人物的生图，只自然说明参考暂时不可用；绝不静默生成另一张脸。",
+                "人物脸部身份标记为已确认，但私有身份参考包当前无法安全读取。暂停该人物的生图，只自然说明参考暂时不可用；绝不静默生成另一张脸。",
             )
         else:
             identity_lines = (
@@ -87,7 +100,7 @@ class CodexRuntimeContext:
             f"重视的事：{values or '尊重、诚实与分寸'}。兴趣方向：{interests or '随相处自然形成，不凭空编造'}。",
             f"明确边界：{boundaries or '尊重用户边界与宿主安全要求'}。",
             f"人物气质方向：{_fragment(profile.visual.appearance, 320)}。这不是固定发型、妆容或服饰。用户问长相时用日常第一人称简短描述，不输出规格表。",
-            "人物原型确认后也只固定脸部身份；发型、表情、妆容、服饰和场景可以变化，并应与本次需求、人物状态和环境相匹配。",
+            "主脸原型只固定脸部身份；只有用户另行确认体型参考时才保持稳定体型特征。发型、表情、妆容、服饰、姿势和场景可以变化，并应与本次需求、人物状态和环境相匹配。",
             f"处理具体任务的习惯：{_fragment(profile.task_style, 240)}。",
         )
         critical_lines = (
@@ -172,10 +185,40 @@ def _identity_control_lines(
     version_placeholder = shlex.quote("<profile_version>")
     return (
         "候选图真实生成并展示后，只从本任务 imagegen 回执给出的 generated_images PNG 暂存；没有当前任务图片工具回执时停止，不要复制、扫描或使用旧任务图片。把 <PNG绝对路径> 换成回执中的真实路径，不要向用户播报命令："
-        f" python3 {command} identity stage-native --file {placeholder_path} --task-scope {scope}",
+        f" python3 {command} identity stage-native --file {placeholder_path} --task-scope {scope} --role {PRIMARY_FACE}",
         "只有用户明确确认候选后，才在后台运行："
         f" python3 {command} identity confirm --candidate-id {candidate_placeholder} --task-scope {scope} --profile-version {version_placeholder}。"
-        "这两步都不需要 API Key，也不要把命令或内部标识说给用户。",
+        "若返回 retry_profile_version，用同一候选和新版本重试一次；这两步都不需要 API Key，也不要把命令或内部标识说给用户。",
+    )
+
+
+def _identity_enhancement_control_lines(
+    control_path: str | Path | None,
+    task_scope: str | None,
+) -> tuple[str, ...]:
+    normalized_scope = str(task_scope or "")
+    if (
+        control_path is None
+        or not normalized_scope.strip()
+        or len(normalized_scope) > 256
+        or any(ord(character) < 32 for character in normalized_scope)
+    ):
+        return ()
+    command = shlex.quote(str(Path(control_path).resolve()))
+    scope = shlex.quote(normalized_scope)
+    if len(command) > 700:
+        return ()
+    placeholder_path = shlex.quote("<PNG绝对路径>")
+    candidate_placeholder = shlex.quote("<candidate_id>")
+    version_placeholder = shlex.quote("<profile_version>")
+    role_placeholder = shlex.quote(f"<{PROFILE_FACE}或{BODY_SHAPE}>")
+    return (
+        "只有用户明确要求提高侧脸或全身稳定性时，才基于主脸逐张生成中性校准候选；不要为普通拍照静默额外耗用生图额度，也不要把日常成图自动收入身份包。",
+        "候选真实生成并展示后，把角色占位替换为 profile_face 或 body_shape，在后台运行："
+        f" python3 {command} identity stage-native --file {placeholder_path} --task-scope {scope} --role {role_placeholder}",
+        "只有用户明确确认这张校准候选后，才在后台运行："
+        f" python3 {command} identity confirm --candidate-id {candidate_placeholder} --task-scope {scope} --profile-version {version_placeholder}。"
+        "若返回 retry_profile_version，用同一候选和新版本重试一次；一次只确认一个角色，不向用户播报命令或内部标识。",
     )
 
 
@@ -235,22 +278,29 @@ def load_codex_runtime_context(
         now=timestamp,
     )
     identity_reference: Path | None = None
+    identity_pack: IdentityPack | None = None
     identity_reference_error = False
     if profile.visual.is_locked:
         try:
-            identity_reference = ImageAssetStore(
+            identity_pack = ImageAssetStore(
                 default_profile_path("codex").parents[1] / "private" / "images"
-            ).resolve_reference(
-                reference_id=profile.visual.reference_ids[0],
+            ).resolve_identity_pack(
+                primary_reference_id=profile.visual.reference_ids[0],
                 profile_id=profile.id,
                 identity_version=profile.visual.identity_version,
             )
+            primary = identity_pack.member(PRIMARY_FACE)
+            if primary is None:
+                raise ImageAssetError("身份参考包缺少主脸")
+            identity_reference = primary.path
         except (ImageAssetError, OSError):
             identity_reference_error = True
+            identity_pack = None
     return CodexRuntimeContext(
         profile=profile,
         relationship=relationship,
         identity_reference=identity_reference,
+        identity_pack=identity_pack,
         identity_reference_error=identity_reference_error,
     )
 

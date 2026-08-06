@@ -291,7 +291,7 @@ def load_profile(path: str | Path) -> PersonaProfile:
         if identity_status == "unset" and reference_ids:
             raise ConfigError("未固定身份时不能绑定参考图")
         if identity_status == "locked" and len(reference_ids) != 1:
-            raise ConfigError("固定身份必须绑定恰好一张已确认参考图")
+            raise ConfigError("固定身份必须绑定恰好一张已确认主脸参考")
         template_id = _text(raw.get("template_id"), "template_id")
         if not _ID_RE.fullmatch(template_id):
             raise ConfigError("template_id 必须使用小写字母、数字、下划线或连字符")

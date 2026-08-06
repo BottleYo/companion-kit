@@ -9,6 +9,9 @@ import unittest
 from unittest.mock import patch
 
 from companion_kit.web_panel import create_panel_server
+from companion_kit.identity_pack import PROFILE_FACE
+from companion_kit.image_assets import ImageAssetStore
+from tests.png_fixture import tiny_png
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +112,94 @@ class WebPanelTests(unittest.TestCase):
                 self.assertEqual([host["host"] for host in payload["hosts"]], ["codex"])
                 self.assertNotIn("must-not-be-read", json.dumps(payload))
                 self.assertNotIn("Bearer ", json.dumps(payload))
+
+    def test_state_shows_identity_pack_summary_without_private_identifiers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                assets = ImageAssetStore(root / "private" / "images")
+                primary_candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(rgba=b"\x20\x40\x60\xff"),
+                    task_scope="primary-task",
+                )
+                primary = assets.confirm_candidate(
+                    candidate_id=primary_candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="primary-task",
+                )
+                server.store.bind_reference(
+                    reference_id=primary.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+                side_candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(rgba=b"\x60\x40\x20\xff"),
+                    task_scope="side-task",
+                    role=PROFILE_FACE,
+                    primary_reference_id=primary.reference_id,
+                )
+                assets.confirm_candidate(
+                    candidate_id=side_candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="side-task",
+                )
+
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/state",
+                    token="test-panel-token",
+                )
+                payload = json.loads(body)
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(payload["photo_modes"]["identity_pack"]["level"], "enhanced")
+            self.assertEqual(
+                payload["photo_modes"]["identity_pack"]["roles"],
+                ["primary_face", "profile_face"],
+            )
+            serialized = json.dumps(payload["photo_modes"]["identity_pack"], ensure_ascii=False)
+            self.assertNotIn("ref_", serialized)
+            self.assertNotIn("sha256", serialized)
+            self.assertNotIn(str(root), serialized)
+
+    def test_reading_missing_identity_pack_does_not_create_private_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                server.store.bind_reference(
+                    reference_id="ref_1234567890abcdef",
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/state",
+                    token="test-panel-token",
+                )
+                payload = json.loads(body)
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(payload["photo_modes"]["identity_pack"]["level"], "unavailable")
+            self.assertFalse((root / "private").exists())
 
     def test_one_sentence_persona_draft_is_preview_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

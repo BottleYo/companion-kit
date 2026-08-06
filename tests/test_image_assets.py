@@ -14,7 +14,7 @@ from tests.png_fixture import tiny_png
 
 
 class ImageAssetStoreTests(unittest.TestCase):
-    def test_candidate_confirmation_keeps_one_private_sanitized_reference(self) -> None:
+    def test_candidate_confirmation_keeps_sanitized_primary_and_legacy_mirror(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve() / "private-assets"
             store = ImageAssetStore(root)
@@ -42,15 +42,18 @@ class ImageAssetStoreTests(unittest.TestCase):
             self.assertNotIn(secret_metadata, resolved.read_bytes())
             self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
             self.assertEqual(stat.S_IMODE(resolved.stat().st_mode), 0o600)
-            self.assertEqual(len(list(root.rglob("*.png"))), 1)
+            # Identity Pack 使用不可变成员文件，selected.png 作为旧版本主脸兼容镜像。
+            self.assertEqual(len(list(root.rglob("*.png"))), 2)
 
             manifests = list(root.rglob("*.json"))
-            self.assertEqual(len(manifests), 1)
-            manifest_text = manifests[0].read_text(encoding="utf-8")
-            manifest = json.loads(manifest_text)
-            self.assertNotIn("codex-task-one", manifest_text)
-            self.assertNotIn("path", manifest)
-            self.assertEqual(manifest["reference_id"], selected.reference_id)
+            self.assertEqual(len(manifests), 2)
+            payloads = [json.loads(path.read_text(encoding="utf-8")) for path in manifests]
+            serialized = json.dumps(payloads, ensure_ascii=False)
+            self.assertNotIn("codex-task-one", serialized)
+            self.assertNotIn("path", serialized)
+            self.assertTrue(
+                any(payload.get("reference_id") == selected.reference_id for payload in payloads)
+            )
 
     def test_new_candidate_replaces_pending_slot_without_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

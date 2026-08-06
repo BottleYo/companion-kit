@@ -274,7 +274,7 @@ class ProfileStore:
         identity_version: int,
         expected_version: str,
     ) -> ProfileSnapshot:
-        """把一张已确认的私有资产绑定为当前身份版本的唯一参考。"""
+        """把已确认的私有资产绑定为当前身份版本的唯一主脸参考。"""
 
         if not _REFERENCE_ID_RE.fullmatch(str(reference_id or "")):
             raise ProfileStoreError("reference_id 格式无效")
@@ -306,7 +306,7 @@ class ProfileStore:
                             identity_status="locked",
                             identity_anchor=(
                                 current.profile.visual.identity_anchor
-                                or "脸部身份以用户已确认的唯一参考图为准"
+                                or "脸部身份以用户已确认的唯一主脸参考为准"
                             ),
                             reference_ids=(reference_id,),
                         ),

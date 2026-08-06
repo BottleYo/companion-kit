@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from companion_kit.codex_runtime import load_codex_runtime_context
+from companion_kit.identity_pack import BODY_SHAPE, PROFILE_FACE
 from companion_kit.initializer import initialize_profile
 from companion_kit.image_assets import ImageAssetStore
 from companion_kit.profile_store import ProfileStore
@@ -65,7 +66,7 @@ class CodexRuntimeTests(unittest.TestCase):
             self.assertIn("不要检查或索要 OPENAI_API_KEY", rendered)
             self.assertIn("上传一张有权使用的虚构成年人或成年人物参考图", rendered)
             self.assertIn("确认之前只把它当候选原型", rendered)
-            self.assertIn("发型、表情、妆容、服饰和场景可以变化", rendered)
+            self.assertIn("发型、表情、妆容、服饰、姿势和场景可以变化", rendered)
             self.assertIn("代码正确性、测试和用户的技术要求优先", rendered)
             self.assertNotIn("修改 Codex 全局个性化", rendered)
             self.assertNotIn(str(home), rendered)
@@ -215,10 +216,118 @@ class CodexRuntimeTests(unittest.TestCase):
                     task_scope="codex-task-two",
                 )
 
-            self.assertIn(str(reference.path), rendered)
+            self.assertIn(str(runtime.identity_reference), rendered)
             self.assertIn("referenced_image_paths", rendered)
-            self.assertIn("唯一参考图", rendered)
+            self.assertIn("唯一身份参考包", rendered)
             self.assertIn("不要检查或索要 OPENAI_API_KEY", rendered)
+
+    def test_runtime_exposes_verified_pack_roles_and_fails_closed_as_one_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "companion-home"
+            with patch.dict(os.environ, {"COMPANION_HOME": str(home)}, clear=True):
+                initialize_profile(
+                    skill_root=SKILL_ROOT,
+                    template_id="warm_healer",
+                    display_name="小禾",
+                )
+                store = ProfileStore(skill_root=SKILL_ROOT)
+                snapshot = store.read()
+                assets = ImageAssetStore(home / "private" / "images")
+                primary_candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(rgba=b"\x20\x40\x60\xff"),
+                    task_scope="primary-task",
+                )
+                primary = assets.confirm_candidate(
+                    candidate_id=primary_candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="primary-task",
+                )
+                store.bind_reference(
+                    reference_id=primary.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+                side_candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(rgba=b"\x60\x40\x20\xff"),
+                    task_scope="side-task",
+                    role=PROFILE_FACE,
+                    primary_reference_id=primary.reference_id,
+                )
+                side = assets.confirm_candidate(
+                    candidate_id=side_candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="side-task",
+                )
+                body_candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(rgba=b"\x10\x80\x30\xff"),
+                    task_scope="body-task",
+                    role=BODY_SHAPE,
+                    primary_reference_id=primary.reference_id,
+                )
+                body = assets.confirm_candidate(
+                    candidate_id=body_candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="body-task",
+                )
+
+                runtime = load_codex_runtime_context()
+                rendered = runtime.render(
+                    control_path=SKILL_ROOT / "scripts" / "companionctl.py",
+                    task_scope="next-task",
+                )
+
+                self.assertIn(str(primary.reference_id), str(runtime.identity_pack.primary_reference_id))
+                self.assertIn(str(side.path), rendered)
+                self.assertIn(str(body.path), rendered)
+                self.assertIn("主脸", rendered)
+                self.assertIn("侧脸", rendered)
+                self.assertIn("体型", rendered)
+                self.assertIn("最多使用两张", rendered)
+                self.assertIn("全身", rendered)
+                self.assertLessEqual(len(rendered), 3_000)
+
+                repeated = "细腻但不复述标签" * 100
+                crowded = replace(
+                    runtime,
+                    profile=replace(
+                        runtime.profile,
+                        intent_summary=repeated,
+                        traits=tuple(repeated for _ in range(12)),
+                        speaking_style=repeated,
+                        boundaries=tuple(repeated for _ in range(12)),
+                        background=repeated,
+                        values=tuple(repeated for _ in range(12)),
+                        interests=tuple(repeated for _ in range(12)),
+                        task_style=repeated,
+                        visual=replace(runtime.profile.visual, appearance=repeated),
+                    ),
+                )
+                crowded_rendered = crowded.render(
+                    control_path=SKILL_ROOT / "scripts" / "companionctl.py",
+                    task_scope="next-task",
+                )
+                self.assertLessEqual(len(crowded_rendered), 3_000)
+                self.assertIn("最多使用两张", crowded_rendered)
+                self.assertIn("如果图片工具没有实际接收", crowded_rendered)
+
+                side.path.unlink()
+                broken = load_codex_runtime_context()
+                broken_rendered = broken.render()
+
+            self.assertTrue(broken.identity_reference_error)
+            self.assertIn("暂停", broken_rendered)
+            self.assertNotIn(str(primary.path), broken_rendered)
+            self.assertNotIn(str(side.path), broken_rendered)
+            self.assertNotIn(str(body.path), broken_rendered)
 
 
 if __name__ == "__main__":

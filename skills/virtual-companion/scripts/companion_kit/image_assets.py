@@ -16,6 +16,14 @@ import uuid
 import zlib
 
 from .file_lock import InterprocessLockError, exclusive_file_lock
+from .identity_pack import (
+    IDENTITY_PACK_ROLES,
+    PRIMARY_FACE,
+    IdentityPackRoleError,
+    normalize_identity_role,
+    ordered_identity_roles,
+    select_identity_roles,
+)
 
 
 class ImageAssetError(ValueError):
@@ -43,9 +51,32 @@ _PENDING_KEYS = (_SELECTED_KEYS - {"reference_id"}) | {
     "candidate_id",
     "task_scope_digest",
 }
+_PENDING_PACK_KEYS = _PENDING_KEYS | {
+    "role",
+    "base_pack_revision",
+    "primary_reference_id",
+}
 _ARTIFACT_KEYS = (_SELECTED_KEYS - {"reference_id"}) | {
     "artifact_id",
     "task_scope_digest",
+}
+_PACK_KEYS = {
+    "schema_version",
+    "profile_id",
+    "identity_version",
+    "primary_reference_id",
+    "revision",
+    "members",
+}
+_PACK_MEMBER_KEYS = {
+    "role",
+    "reference_id",
+    "sha256",
+    "mime_type",
+    "width",
+    "height",
+    "source",
+    "created_at",
 }
 
 
@@ -57,6 +88,8 @@ class CandidateAsset:
     width: int
     height: int
     path: Path
+    role: str = PRIMARY_FACE
+    base_pack_revision: int = 0
 
 
 @dataclass(frozen=True)
@@ -67,6 +100,45 @@ class ReferenceAsset:
     width: int
     height: int
     path: Path
+    role: str = PRIMARY_FACE
+    pack_revision: int = 0
+
+
+@dataclass(frozen=True)
+class IdentityPackMember:
+    role: str
+    reference_id: str
+    sha256: str
+    mime_type: str
+    width: int
+    height: int
+    source: str
+    created_at: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class IdentityPack:
+    profile_id: str
+    identity_version: int
+    primary_reference_id: str
+    revision: int
+    members: tuple[IdentityPackMember, ...]
+
+    @property
+    def roles(self) -> tuple[str, ...]:
+        return tuple(member.role for member in self.members)
+
+    def member(self, role: str) -> IdentityPackMember | None:
+        normalized = normalize_identity_role(role)
+        return next((item for item in self.members if item.role == normalized), None)
+
+    def select_for_brief(self, brief: str) -> tuple[IdentityPackMember, ...]:
+        roles = select_identity_roles(brief, self.roles)
+        selected = tuple(self.member(role) for role in roles)
+        if any(member is None for member in selected):
+            raise ImageAssetError("身份参考包选择结果不完整")
+        return tuple(member for member in selected if member is not None)
 
 
 @dataclass(frozen=True)
@@ -297,8 +369,151 @@ def _load_manifest(path: Path, expected_keys: set[str]) -> dict[str, object]:
     return raw
 
 
+def _load_candidate_manifest(path: Path) -> dict[str, object]:
+    _safe_absolute_path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ImageAssetError("候选原型清单不存在")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ImageAssetError("候选原型清单无效") from exc
+    if not isinstance(raw, dict):
+        raise ImageAssetError("候选原型清单结构无效")
+    keys = set(raw)
+    if keys == _PENDING_KEYS and raw.get("schema_version") == 1:
+        return {
+            **raw,
+            "role": PRIMARY_FACE,
+            "base_pack_revision": 0,
+            "primary_reference_id": "",
+        }
+    if keys != _PENDING_PACK_KEYS or raw.get("schema_version") != 2:
+        raise ImageAssetError("候选原型清单结构无效")
+    try:
+        role = normalize_identity_role(str(raw.get("role") or ""))
+    except IdentityPackRoleError as exc:
+        raise ImageAssetError(str(exc)) from exc
+    revision = raw.get("base_pack_revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise ImageAssetError("候选原型的身份包版本无效")
+    primary_reference_id = str(raw.get("primary_reference_id") or "")
+    if role == PRIMARY_FACE:
+        if primary_reference_id:
+            raise ImageAssetError("主脸候选不能绑定已有主脸")
+    elif not _OPAQUE_ID_RE.fullmatch(primary_reference_id) or not primary_reference_id.startswith(
+        "ref_"
+    ):
+        raise ImageAssetError("增强候选缺少有效主脸锚点")
+    return raw
+
+
+def _pack_member_payload(
+    *,
+    role: str,
+    reference_id: str,
+    sha256_value: str,
+    width: int,
+    height: int,
+    source: str,
+    created_at: str,
+) -> dict[str, object]:
+    return {
+        "role": normalize_identity_role(role),
+        "reference_id": reference_id,
+        "sha256": sha256_value,
+        "mime_type": "image/png",
+        "width": width,
+        "height": height,
+        "source": source,
+        "created_at": created_at,
+    }
+
+
+def _validated_pack_payload(raw: object) -> dict[str, object]:
+    if not isinstance(raw, dict) or set(raw) != _PACK_KEYS:
+        raise ImageAssetError("身份参考包清单结构无效")
+    if raw.get("schema_version") != 1:
+        raise ImageAssetError("身份参考包版本不受支持")
+    profile_id = raw.get("profile_id")
+    identity_version = raw.get("identity_version")
+    _validate_profile(str(profile_id or ""), identity_version)  # type: ignore[arg-type]
+    revision = raw.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        raise ImageAssetError("身份参考包修订号无效")
+    primary_reference_id = str(raw.get("primary_reference_id") or "")
+    if not _OPAQUE_ID_RE.fullmatch(primary_reference_id) or not primary_reference_id.startswith(
+        "ref_"
+    ):
+        raise ImageAssetError("身份参考包主脸标识无效")
+    members = raw.get("members")
+    if not isinstance(members, list) or not 1 <= len(members) <= len(IDENTITY_PACK_ROLES):
+        raise ImageAssetError("身份参考包成员数量无效")
+    roles: list[str] = []
+    reference_ids: list[str] = []
+    for member in members:
+        if not isinstance(member, dict) or set(member) != _PACK_MEMBER_KEYS:
+            raise ImageAssetError("身份参考包成员结构无效")
+        try:
+            role = normalize_identity_role(str(member.get("role") or ""))
+        except IdentityPackRoleError as exc:
+            raise ImageAssetError(str(exc)) from exc
+        reference_id = str(member.get("reference_id") or "")
+        content_hash = str(member.get("sha256") or "")
+        width = member.get("width")
+        height = member.get("height")
+        if (
+            not _OPAQUE_ID_RE.fullmatch(reference_id)
+            or not reference_id.startswith("ref_")
+            or not re.fullmatch(r"[a-f0-9]{64}", content_hash)
+            or reference_id != f"ref_{content_hash[:24]}"
+            or member.get("mime_type") != "image/png"
+            or not isinstance(width, int)
+            or isinstance(width, bool)
+            or width < 1
+            or not isinstance(height, int)
+            or isinstance(height, bool)
+            or height < 1
+            or width * height > _MAX_PIXELS
+            or member.get("source") not in {"openai_image_api", "codex_native"}
+            or not isinstance(member.get("created_at"), str)
+            or not str(member.get("created_at") or "").strip()
+        ):
+            raise ImageAssetError("身份参考包成员字段无效")
+        try:
+            created_at = datetime.fromisoformat(str(member["created_at"]))
+        except ValueError as exc:
+            raise ImageAssetError("身份参考包成员时间无效") from exc
+        if created_at.tzinfo is None:
+            raise ImageAssetError("身份参考包成员时间缺少时区")
+        roles.append(role)
+        reference_ids.append(reference_id)
+    try:
+        ordered = ordered_identity_roles(roles)
+    except IdentityPackRoleError as exc:
+        raise ImageAssetError(str(exc)) from exc
+    if tuple(roles) != ordered or not roles or roles[0] != PRIMARY_FACE:
+        raise ImageAssetError("身份参考包角色顺序无效")
+    if len(set(reference_ids)) != len(reference_ids):
+        raise ImageAssetError("身份参考包成员不能重复使用同一张图")
+    primary_member = members[0]
+    if primary_member.get("reference_id") != primary_reference_id:
+        raise ImageAssetError("身份参考包主脸锚点不一致")
+    return raw
+
+
+def _load_pack_manifest(path: Path) -> dict[str, object]:
+    _safe_absolute_path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ImageAssetError("身份参考包清单不存在")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ImageAssetError("身份参考包清单无效") from exc
+    return _validated_pack_payload(raw)
+
+
 class ImageAssetStore:
-    """仅保存一个身份参考、一个候选槽和短暂的当前任务成图。"""
+    """保存一个轻量身份参考包、一个候选槽和短暂的当前任务成图。"""
 
     def __init__(
         self,
@@ -319,6 +534,25 @@ class ImageAssetStore:
         _validate_profile(profile_id, identity_version)
         return self.root / "identities" / profile_id / f"v{identity_version}"
 
+    def _pack_path(self, profile_id: str, identity_version: int) -> Path:
+        return self._profile_root(profile_id, identity_version) / "pack.json"
+
+    def _members_root(self, profile_id: str, identity_version: int) -> Path:
+        return self._profile_root(profile_id, identity_version) / "members"
+
+    def _member_path(
+        self,
+        *,
+        reference_id: str,
+        profile_id: str,
+        identity_version: int,
+    ) -> Path:
+        if not _OPAQUE_ID_RE.fullmatch(str(reference_id or "")) or not str(
+            reference_id
+        ).startswith("ref_"):
+            raise ImageAssetError("reference_id 格式无效")
+        return self._members_root(profile_id, identity_version) / f"{reference_id}.png"
+
     def _locked(self):
         _private_directory(self.root)
         _safe_absolute_path(self._lock_path)
@@ -330,6 +564,147 @@ class ImageAssetStore:
             raise ImageAssetError("图片资产时间必须包含时区")
         return now.astimezone(UTC).isoformat()
 
+    def _pack_from_manifest_locked(
+        self,
+        *,
+        manifest: dict[str, object],
+        primary_reference_id: str,
+        profile_id: str,
+        identity_version: int,
+    ) -> IdentityPack:
+        if (
+            manifest["profile_id"] != profile_id
+            or manifest["identity_version"] != identity_version
+            or manifest["primary_reference_id"] != primary_reference_id
+        ):
+            raise ImageAssetError("身份参考包与当前 Persona 不匹配")
+        resolved: list[IdentityPackMember] = []
+        for raw_member in manifest["members"]:  # type: ignore[union-attr]
+            member = dict(raw_member)
+            reference_id = str(member["reference_id"])
+            path = self._member_path(
+                reference_id=reference_id,
+                profile_id=profile_id,
+                identity_version=identity_version,
+            )
+            _safe_absolute_path(path)
+            if path.is_symlink() or not path.is_file():
+                raise ImageAssetError("身份参考包成员缺失")
+            try:
+                image_bytes = path.read_bytes()
+            except OSError as exc:
+                raise ImageAssetError("身份参考包成员无法读取") from exc
+            sanitized, width, height = sanitize_png(image_bytes)
+            if (
+                sha256(sanitized).hexdigest() != member["sha256"]
+                or width != member["width"]
+                or height != member["height"]
+            ):
+                raise ImageAssetError("身份参考包成员内容已变化")
+            resolved.append(
+                IdentityPackMember(
+                    role=str(member["role"]),
+                    reference_id=reference_id,
+                    sha256=str(member["sha256"]),
+                    mime_type="image/png",
+                    width=width,
+                    height=height,
+                    source=str(member["source"]),
+                    created_at=str(member["created_at"]),
+                    path=path,
+                )
+            )
+        return IdentityPack(
+            profile_id=profile_id,
+            identity_version=identity_version,
+            primary_reference_id=primary_reference_id,
+            revision=int(manifest["revision"]),
+            members=tuple(resolved),
+        )
+
+    def _legacy_pack_locked(
+        self,
+        *,
+        primary_reference_id: str,
+        profile_id: str,
+        identity_version: int,
+    ) -> IdentityPack:
+        image_path, image_bytes = self._verified_reference_locked(
+            reference_id=primary_reference_id,
+            profile_id=profile_id,
+            identity_version=identity_version,
+        )
+        manifest = _load_manifest(
+            self._profile_root(profile_id, identity_version) / "selected.json",
+            _SELECTED_KEYS,
+        )
+        sanitized, width, height = sanitize_png(image_bytes)
+        member = IdentityPackMember(
+            role=PRIMARY_FACE,
+            reference_id=primary_reference_id,
+            sha256=sha256(sanitized).hexdigest(),
+            mime_type="image/png",
+            width=width,
+            height=height,
+            source=str(manifest["source"]),
+            created_at=str(manifest["created_at"]),
+            path=image_path,
+        )
+        return IdentityPack(
+            profile_id=profile_id,
+            identity_version=identity_version,
+            primary_reference_id=primary_reference_id,
+            revision=0,
+            members=(member,),
+        )
+
+    def _resolve_identity_pack_locked(
+        self,
+        *,
+        primary_reference_id: str,
+        profile_id: str,
+        identity_version: int,
+    ) -> IdentityPack:
+        pack_path = self._pack_path(profile_id, identity_version)
+        members_root = self._members_root(profile_id, identity_version)
+        if pack_path.is_symlink() or pack_path.exists():
+            manifest = _load_pack_manifest(pack_path)
+            return self._pack_from_manifest_locked(
+                manifest=manifest,
+                primary_reference_id=primary_reference_id,
+                profile_id=profile_id,
+                identity_version=identity_version,
+            )
+        if members_root.is_symlink() or members_root.exists():
+            raise ImageAssetError("身份参考包清单缺失，已停止人物生图")
+        return self._legacy_pack_locked(
+            primary_reference_id=primary_reference_id,
+            profile_id=profile_id,
+            identity_version=identity_version,
+        )
+
+    def resolve_identity_pack(
+        self,
+        *,
+        primary_reference_id: str,
+        profile_id: str,
+        identity_version: int,
+    ) -> IdentityPack:
+        """解析当前身份版本的唯一参考包；声明成员损坏时整包失败。"""
+
+        _validate_profile(profile_id, identity_version)
+        if not self.root.is_dir():
+            raise ImageAssetError("身份参考包不存在")
+        try:
+            with self._locked():
+                return self._resolve_identity_pack_locked(
+                    primary_reference_id=primary_reference_id,
+                    profile_id=profile_id,
+                    identity_version=identity_version,
+                )
+        except (OSError, InterprocessLockError) as exc:
+            raise ImageAssetError("无法解析身份参考包") from exc
+
     def store_candidate(
         self,
         *,
@@ -338,31 +713,67 @@ class ImageAssetStore:
         image_bytes: bytes,
         task_scope: str,
         source: str = "openai_image_api",
+        role: str = PRIMARY_FACE,
+        primary_reference_id: str | None = None,
     ) -> CandidateAsset:
         if source not in {"openai_image_api", "codex_native"}:
             raise ImageAssetError("候选原型来源无效")
+        try:
+            normalized_role = normalize_identity_role(role)
+        except IdentityPackRoleError as exc:
+            raise ImageAssetError(str(exc)) from exc
         sanitized, width, height = sanitize_png(image_bytes)
         digest = _task_digest(task_scope)
         candidate_id = f"cand_{uuid.uuid4().hex[:24]}"
         profile_root = self._profile_root(profile_id, identity_version)
         image_path = profile_root / "pending.png"
         manifest_path = profile_root / "pending.json"
-        manifest = {
-            "schema_version": 1,
-            "candidate_id": candidate_id,
-            "profile_id": profile_id,
-            "identity_version": identity_version,
-            "sha256": sha256(sanitized).hexdigest(),
-            "mime_type": "image/png",
-            "width": width,
-            "height": height,
-            "source": source,
-            "created_at": self._created_at(),
-            "task_scope_digest": digest,
-        }
+        base_pack_revision = 0
+        normalized_primary = str(primary_reference_id or "").strip()
         try:
             with self._locked():
                 _private_directory(profile_root)
+                if normalized_role == PRIMARY_FACE:
+                    if normalized_primary:
+                        raise ImageAssetError("主脸候选不能绑定已有主脸")
+                    if (
+                        (profile_root / "selected.png").exists()
+                        or (profile_root / "selected.json").exists()
+                        or (profile_root / "pack.json").exists()
+                        or (profile_root / "members").exists()
+                    ):
+                        raise ImageAssetError("主脸已经存在；更换人物必须使用身份轮换")
+                else:
+                    if (
+                        not _OPAQUE_ID_RE.fullmatch(normalized_primary)
+                        or not normalized_primary.startswith("ref_")
+                    ):
+                        raise ImageAssetError("增强候选必须绑定当前主脸")
+                    try:
+                        pack = self._resolve_identity_pack_locked(
+                            primary_reference_id=normalized_primary,
+                            profile_id=profile_id,
+                            identity_version=identity_version,
+                        )
+                    except ImageAssetError as exc:
+                        raise ImageAssetError("请先确认可用的主脸参考") from exc
+                    base_pack_revision = pack.revision
+                manifest = {
+                    "schema_version": 2,
+                    "candidate_id": candidate_id,
+                    "profile_id": profile_id,
+                    "identity_version": identity_version,
+                    "sha256": sha256(sanitized).hexdigest(),
+                    "mime_type": "image/png",
+                    "width": width,
+                    "height": height,
+                    "source": source,
+                    "created_at": self._created_at(),
+                    "task_scope_digest": digest,
+                    "role": normalized_role,
+                    "base_pack_revision": base_pack_revision,
+                    "primary_reference_id": normalized_primary,
+                }
                 image_path.unlink(missing_ok=True)
                 manifest_path.unlink(missing_ok=True)
                 _atomic_write(image_path, sanitized)
@@ -376,6 +787,8 @@ class ImageAssetStore:
             width=width,
             height=height,
             path=image_path,
+            role=normalized_role,
+            base_pack_revision=base_pack_revision,
         )
 
     def store_candidate_file(
@@ -385,6 +798,8 @@ class ImageAssetStore:
         identity_version: int,
         source_path: str | Path,
         task_scope: str,
+        role: str = PRIMARY_FACE,
+        primary_reference_id: str | None = None,
     ) -> CandidateAsset:
         """导入 Codex 当前任务已经真实生成或取得的一张 PNG 候选图。"""
 
@@ -418,6 +833,8 @@ class ImageAssetStore:
                 image_bytes=image_bytes,
                 task_scope=task_scope,
                 source="codex_native",
+                role=role,
+                primary_reference_id=primary_reference_id,
             )
         except ImageAssetError as exc:
             if not image_bytes.startswith(_PNG_SIGNATURE):
@@ -433,6 +850,7 @@ class ImageAssetStore:
         profile_id: str,
         identity_version: int,
         task_scope: str,
+        retain_candidate: bool = False,
     ) -> ReferenceAsset:
         if not _OPAQUE_ID_RE.fullmatch(str(candidate_id or "")) or not str(
             candidate_id
@@ -446,7 +864,7 @@ class ImageAssetStore:
         selected_manifest = profile_root / "selected.json"
         try:
             with self._locked():
-                manifest = _load_manifest(pending_manifest, _PENDING_KEYS)
+                manifest = _load_candidate_manifest(pending_manifest)
                 if (
                     manifest["candidate_id"] != candidate_id
                     or manifest["profile_id"] != profile_id
@@ -461,16 +879,184 @@ class ImageAssetStore:
                 if content_hash != manifest["sha256"]:
                     raise ImageAssetError("候选原型内容已变化")
                 reference_id = f"ref_{content_hash[:24]}"
-                selected = {
-                    key: value
-                    for key, value in manifest.items()
-                    if key not in {"candidate_id", "task_scope_digest"}
+                role = str(manifest["role"])
+                member_payload = _pack_member_payload(
+                    role=role,
+                    reference_id=reference_id,
+                    sha256_value=content_hash,
+                    width=width,
+                    height=height,
+                    source=str(manifest["source"]),
+                    created_at=str(manifest["created_at"]),
+                )
+                member_path = self._member_path(
+                    reference_id=reference_id,
+                    profile_id=profile_id,
+                    identity_version=identity_version,
+                )
+
+                if role == PRIMARY_FACE:
+                    primary_traces = (
+                        selected_image,
+                        selected_manifest,
+                        self._pack_path(profile_id, identity_version),
+                        self._members_root(profile_id, identity_version),
+                    )
+                    if any(path.is_symlink() or path.exists() for path in primary_traces):
+                        try:
+                            existing_pack = self._resolve_identity_pack_locked(
+                                primary_reference_id=reference_id,
+                                profile_id=profile_id,
+                                identity_version=identity_version,
+                            )
+                            existing_primary = existing_pack.member(PRIMARY_FACE)
+                            _, existing_selected = self._verified_reference_locked(
+                                reference_id=reference_id,
+                                profile_id=profile_id,
+                                identity_version=identity_version,
+                            )
+                        except ImageAssetError as exc:
+                            raise ImageAssetError(
+                                "主脸已经存在；不能静默覆盖当前人物"
+                            ) from exc
+                        if (
+                            existing_pack.revision != 1
+                            or existing_pack.roles != (PRIMARY_FACE,)
+                            or existing_primary is None
+                            or existing_primary.reference_id != reference_id
+                            or existing_primary.sha256 != content_hash
+                            or existing_primary.width != width
+                            or existing_primary.height != height
+                            or existing_primary.source != manifest["source"]
+                            or existing_primary.created_at != manifest["created_at"]
+                            or sha256(existing_selected).hexdigest() != content_hash
+                        ):
+                            raise ImageAssetError(
+                                "主脸已经存在；不能静默覆盖当前人物"
+                            )
+                        if not retain_candidate:
+                            pending_image.unlink(missing_ok=True)
+                            pending_manifest.unlink(missing_ok=True)
+                        return ReferenceAsset(
+                            reference_id=reference_id,
+                            profile_id=profile_id,
+                            identity_version=identity_version,
+                            width=width,
+                            height=height,
+                            path=selected_image,
+                            role=PRIMARY_FACE,
+                            pack_revision=existing_pack.revision,
+                        )
+                    pack_revision = 1
+                    members_payload = [member_payload]
+                    legacy_selected = {
+                        "schema_version": 1,
+                        "reference_id": reference_id,
+                        "profile_id": profile_id,
+                        "identity_version": identity_version,
+                        "sha256": content_hash,
+                        "mime_type": "image/png",
+                        "width": width,
+                        "height": height,
+                        "source": str(manifest["source"]),
+                        "created_at": str(manifest["created_at"]),
+                    }
+                    _atomic_write(member_path, sanitized)
+                    _atomic_write(selected_image, sanitized)
+                    _atomic_write(selected_manifest, _json_bytes(legacy_selected))
+                else:
+                    primary_reference_id = str(manifest["primary_reference_id"])
+                    base_pack_revision = int(manifest["base_pack_revision"])
+                    current_pack = self._resolve_identity_pack_locked(
+                        primary_reference_id=primary_reference_id,
+                        profile_id=profile_id,
+                        identity_version=identity_version,
+                    )
+                    if current_pack.revision == base_pack_revision + 1:
+                        existing = current_pack.member(role)
+                        if (
+                            existing is not None
+                            and existing.reference_id == reference_id
+                            and existing.sha256 == content_hash
+                            and existing.width == width
+                            and existing.height == height
+                            and existing.source == manifest["source"]
+                            and existing.created_at == manifest["created_at"]
+                        ):
+                            if not retain_candidate:
+                                pending_image.unlink(missing_ok=True)
+                                pending_manifest.unlink(missing_ok=True)
+                            return ReferenceAsset(
+                                reference_id=existing.reference_id,
+                                profile_id=profile_id,
+                                identity_version=identity_version,
+                                width=existing.width,
+                                height=existing.height,
+                                path=existing.path,
+                                role=existing.role,
+                                pack_revision=current_pack.revision,
+                            )
+                    if current_pack.revision != base_pack_revision:
+                        raise ImageAssetError("身份参考包版本已变化，请重新确认增强候选")
+                    previous = current_pack.member(role)
+                    by_role = {
+                        item.role: _pack_member_payload(
+                            role=item.role,
+                            reference_id=item.reference_id,
+                            sha256_value=item.sha256,
+                            width=item.width,
+                            height=item.height,
+                            source=item.source,
+                            created_at=item.created_at,
+                        )
+                        for item in current_pack.members
+                    }
+                    by_role[role] = member_payload
+                    members_payload = [
+                        by_role[item_role]
+                        for item_role in IDENTITY_PACK_ROLES
+                        if item_role in by_role
+                    ]
+                    pack_revision = current_pack.revision + 1
+                    for item in current_pack.members:
+                        target = self._member_path(
+                            reference_id=item.reference_id,
+                            profile_id=profile_id,
+                            identity_version=identity_version,
+                        )
+                        if target != item.path and not target.exists():
+                            _atomic_write(target, item.path.read_bytes())
+                    _atomic_write(member_path, sanitized)
+
+                primary_id = (
+                    reference_id
+                    if role == PRIMARY_FACE
+                    else str(manifest["primary_reference_id"])
+                )
+                pack_payload = {
+                    "schema_version": 1,
+                    "profile_id": profile_id,
+                    "identity_version": identity_version,
+                    "primary_reference_id": primary_id,
+                    "revision": pack_revision,
+                    "members": members_payload,
                 }
-                selected["reference_id"] = reference_id
-                _atomic_write(selected_image, sanitized)
-                _atomic_write(selected_manifest, _json_bytes(selected))
-                pending_image.unlink(missing_ok=True)
-                pending_manifest.unlink(missing_ok=True)
+                _validated_pack_payload(pack_payload)
+                _atomic_write(
+                    self._pack_path(profile_id, identity_version),
+                    _json_bytes(pack_payload),
+                )
+                if role != PRIMARY_FACE and previous is not None:
+                    old_path = self._member_path(
+                        reference_id=previous.reference_id,
+                        profile_id=profile_id,
+                        identity_version=identity_version,
+                    )
+                    if old_path != member_path:
+                        old_path.unlink(missing_ok=True)
+                if not retain_candidate:
+                    pending_image.unlink(missing_ok=True)
+                    pending_manifest.unlink(missing_ok=True)
         except (OSError, InterprocessLockError) as exc:
             raise ImageAssetError(f"无法确认身份参考：{exc}") from exc
         return ReferenceAsset(
@@ -479,8 +1065,164 @@ class ImageAssetStore:
             identity_version=identity_version,
             width=width,
             height=height,
-            path=selected_image,
+            path=selected_image if role == PRIMARY_FACE else member_path,
+            role=role,
+            pack_revision=pack_revision,
         )
+
+    def rollback_primary_confirmation(
+        self,
+        *,
+        candidate_id: str,
+        reference_id: str,
+        profile_id: str,
+        identity_version: int,
+        task_scope: str,
+    ) -> None:
+        """Persona 绑定失败时，把刚确认的单主脸安全还原为原候选。"""
+
+        if not _OPAQUE_ID_RE.fullmatch(str(candidate_id or "")) or not str(
+            candidate_id
+        ).startswith("cand_"):
+            raise ImageAssetError("candidate_id 格式无效")
+        if not _OPAQUE_ID_RE.fullmatch(str(reference_id or "")) or not str(
+            reference_id
+        ).startswith("ref_"):
+            raise ImageAssetError("reference_id 格式无效")
+        digest = _task_digest(task_scope)
+        profile_root = self._profile_root(profile_id, identity_version)
+        pending_image = profile_root / "pending.png"
+        pending_manifest = profile_root / "pending.json"
+        selected_image = profile_root / "selected.png"
+        selected_manifest = profile_root / "selected.json"
+        try:
+            with self._locked():
+                pack = self._resolve_identity_pack_locked(
+                    primary_reference_id=reference_id,
+                    profile_id=profile_id,
+                    identity_version=identity_version,
+                )
+                if (
+                    pack.revision != 1
+                    or pack.roles != (PRIMARY_FACE,)
+                    or pack.primary_reference_id != reference_id
+                ):
+                    raise ImageAssetError("当前身份包已变化，不能自动还原主脸候选")
+                pending_image_present = pending_image.is_symlink() or pending_image.exists()
+                pending_manifest_present = (
+                    pending_manifest.is_symlink() or pending_manifest.exists()
+                )
+                retained_candidate: bytes | None = None
+                retained_candidate_state: dict[str, object] | None = None
+                if pending_image_present != pending_manifest_present:
+                    raise ImageAssetError("候选槽不完整，不能自动还原主脸候选")
+                if pending_image_present:
+                    if pending_image.is_symlink() or pending_manifest.is_symlink():
+                        raise ImageAssetError("候选槽不能经过符号链接")
+                    candidate_state = _load_candidate_manifest(pending_manifest)
+                    retained_candidate_state = candidate_state
+                    _, retained_candidate = self._verified_candidate_locked(
+                        candidate_id=candidate_id,
+                        profile_id=profile_id,
+                        identity_version=identity_version,
+                        task_scope=task_scope,
+                    )
+                    if (
+                        candidate_state["role"] != PRIMARY_FACE
+                        or candidate_state["base_pack_revision"] != 0
+                        or candidate_state["primary_reference_id"]
+                        or f"ref_{sha256(retained_candidate).hexdigest()[:24]}"
+                        != reference_id
+                    ):
+                        raise ImageAssetError("候选槽已经变化，不能自动还原主脸候选")
+                _, selected_bytes = self._verified_reference_locked(
+                    reference_id=reference_id,
+                    profile_id=profile_id,
+                    identity_version=identity_version,
+                )
+                sanitized, width, height = sanitize_png(selected_bytes)
+                primary = pack.member(PRIMARY_FACE)
+                if (
+                    primary is None
+                    or primary.reference_id != reference_id
+                    or primary.sha256 != sha256(sanitized).hexdigest()
+                    or primary.width != width
+                    or primary.height != height
+                ):
+                    raise ImageAssetError("主脸资产已变化，不能自动还原候选")
+                members_root = self._members_root(profile_id, identity_version)
+                _safe_absolute_path(members_root)
+                if members_root.is_symlink() or not members_root.is_dir():
+                    raise ImageAssetError("身份参考包成员目录无效")
+                try:
+                    member_entries = tuple(members_root.iterdir())
+                except OSError as exc:
+                    raise ImageAssetError("无法检查身份参考包成员目录") from exc
+                if member_entries != (primary.path,):
+                    raise ImageAssetError("身份参考包存在未登记成员，不能自动还原候选")
+                if retained_candidate is not None:
+                    if (
+                        retained_candidate_state is None
+                        or sha256(retained_candidate).hexdigest() != primary.sha256
+                        or retained_candidate_state["source"] != primary.source
+                        or retained_candidate_state["created_at"] != primary.created_at
+                        or retained_candidate_state["width"] != primary.width
+                        or retained_candidate_state["height"] != primary.height
+                    ):
+                        raise ImageAssetError("候选内容已变化，不能自动还原主脸候选")
+                else:
+                    candidate_manifest = {
+                        "schema_version": 2,
+                        "candidate_id": candidate_id,
+                        "profile_id": profile_id,
+                        "identity_version": identity_version,
+                        "sha256": primary.sha256,
+                        "mime_type": "image/png",
+                        "width": width,
+                        "height": height,
+                        "source": primary.source,
+                        "created_at": primary.created_at,
+                        "task_scope_digest": digest,
+                        "role": PRIMARY_FACE,
+                        "base_pack_revision": 0,
+                        "primary_reference_id": "",
+                    }
+                    _atomic_write(pending_image, sanitized)
+                    _atomic_write(pending_manifest, _json_bytes(candidate_manifest))
+
+                self._pack_path(profile_id, identity_version).unlink()
+                primary.path.unlink()
+                members_root.rmdir()
+                selected_image.unlink()
+                selected_manifest.unlink()
+        except (OSError, InterprocessLockError) as exc:
+            raise ImageAssetError(f"无法还原主脸候选：{exc}") from exc
+
+    def discard_candidate(
+        self,
+        *,
+        candidate_id: str,
+        profile_id: str,
+        identity_version: int,
+        task_scope: str,
+    ) -> None:
+        """身份与 Persona 都提交后，清理仍与当前任务绑定的候选槽。"""
+
+        profile_root = self._profile_root(profile_id, identity_version)
+        pending_image = profile_root / "pending.png"
+        pending_manifest = profile_root / "pending.json"
+        try:
+            with self._locked():
+                self._verified_candidate_locked(
+                    candidate_id=candidate_id,
+                    profile_id=profile_id,
+                    identity_version=identity_version,
+                    task_scope=task_scope,
+                )
+                pending_image.unlink()
+                pending_manifest.unlink()
+        except (OSError, InterprocessLockError) as exc:
+            raise ImageAssetError(f"无法清理已确认候选：{exc}") from exc
 
     def resolve_candidate(
         self,
@@ -519,7 +1261,7 @@ class ImageAssetStore:
         profile_root = self._profile_root(profile_id, identity_version)
         image_path = profile_root / "pending.png"
         manifest_path = profile_root / "pending.json"
-        manifest = _load_manifest(manifest_path, _PENDING_KEYS)
+        manifest = _load_candidate_manifest(manifest_path)
         if (
             manifest["candidate_id"] != candidate_id
             or manifest["profile_id"] != profile_id
