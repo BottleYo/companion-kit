@@ -20,6 +20,11 @@ from .initializer import (
     initialize_profile,
     prompt_for_profile,
 )
+from .identity_pack import (
+    IDENTITY_PACK_ROLES,
+    OPTIONAL_IDENTITY_ROLES,
+    PRIMARY_FACE,
+)
 from .host_install import HostInstallResult, HostInstaller
 from .image_assets import ImageAssetError, ImageAssetStore
 from .installer import InstallError, install_skill
@@ -36,6 +41,12 @@ _HOST_CLASSES = {
     "codex": HostClass.DESKTOP,
     "claude": HostClass.DESKTOP,
 }
+
+
+class _IdentityConfirmationRetry(ProfileStoreError):
+    def __init__(self, message: str, *, retry_profile_version: str) -> None:
+        super().__init__(message)
+        self.retry_profile_version = retry_profile_version
 
 
 def _local_port(value: str) -> int:
@@ -225,6 +236,12 @@ def _parser() -> argparse.ArgumentParser:
     identity_stage.add_argument("--config", help="配置路径；默认使用 Codex 独立配置")
     identity_stage.add_argument("--file", required=True, help="当前任务真实生成或上传的 PNG")
     identity_stage.add_argument("--task-scope", required=True)
+    identity_stage.add_argument(
+        "--role",
+        choices=IDENTITY_PACK_ROLES,
+        default=PRIMARY_FACE,
+        help="参考角色；默认主脸，已固定后可补侧脸或体型",
+    )
     identity_confirm = identity_commands.add_parser(
         "confirm",
         help="把当前任务候选图固定为唯一身份参考",
@@ -366,20 +383,51 @@ def _reference_status(
     host: str | None = None,
 ) -> tuple[bool, bool]:
     reference_configured = len(snapshot.profile.visual.reference_ids) == 1
-    reference_ready = False
-    image_root = _private_data_root(host) / "images"
-    if reference_configured and image_root.exists():
+    if host is not None and host != "codex":
+        if not reference_configured:
+            return False, False
+        image_root = _private_data_root(host) / "images"
+        if not image_root.is_dir():
+            return True, False
         try:
-            assets = _image_assets(host)
-            assets.resolve_reference(
+            _image_assets(host).resolve_reference(
                 reference_id=snapshot.profile.visual.reference_ids[0],
                 profile_id=snapshot.profile.id,
                 identity_version=snapshot.profile.visual.identity_version,
             )
-            reference_ready = True
         except ImageAssetError:
-            reference_ready = False
-    return reference_configured, reference_ready
+            return True, False
+        return True, True
+    return reference_configured, bool(
+        _identity_pack_status(snapshot, host=host)["ready"]
+    )
+
+
+def _identity_pack_status(
+    snapshot: ProfileSnapshot,
+    *,
+    host: str | None = None,
+) -> dict[str, object]:
+    references = snapshot.profile.visual.reference_ids
+    if len(references) != 1:
+        return {"level": "unset", "ready": False, "roles": [], "revision": None}
+    image_root = _private_data_root(host) / "images"
+    if not image_root.is_dir():
+        return {"level": "unavailable", "ready": False, "roles": [], "revision": None}
+    try:
+        pack = _image_assets(host).resolve_identity_pack(
+            primary_reference_id=references[0],
+            profile_id=snapshot.profile.id,
+            identity_version=snapshot.profile.visual.identity_version,
+        )
+    except ImageAssetError:
+        return {"level": "unavailable", "ready": False, "roles": [], "revision": None}
+    return {
+        "level": "enhanced" if len(pack.members) > 1 else "basic",
+        "ready": True,
+        "roles": list(pack.roles),
+        "revision": pack.revision,
+    }
 
 
 def _print_templates() -> None:
@@ -599,6 +647,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.photo_command == "status":
                 _, snapshot = _profile_snapshot(args.config)
                 reference_configured, reference_ready = _reference_status(snapshot)
+                identity_pack = _identity_pack_status(snapshot)
                 payload = {
                     "profile_id": snapshot.profile.id,
                     "identity_version": snapshot.profile.visual.identity_version,
@@ -615,6 +664,7 @@ def main(argv: list[str] | None = None) -> int:
                     },
                     "api_key_required": False,
                     "provider_choice_required": False,
+                    "identity_pack": identity_pack,
                     "cross_task_reference_bridge": (
                         "ready"
                         if reference_ready
@@ -640,13 +690,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "identity":
             profile_store, snapshot = _profile_snapshot(args.config)
             if args.identity_command == "stage-native":
-                if snapshot.profile.visual.is_locked:
+                role = args.role
+                if role == PRIMARY_FACE and snapshot.profile.visual.is_locked:
                     raise PhotoWorkflowError(
                         "当前人物脸部身份已经固定；如需更换必须先走明确的身份轮换流程"
                     )
+                if role in OPTIONAL_IDENTITY_ROLES and not snapshot.profile.visual.is_locked:
+                    raise PhotoWorkflowError("请先确认主脸，再补充侧脸或体型参考")
                 image_bytes = CodexImageReceiptStore().consume(
                     session_id=args.task_scope,
                     source_path=args.file,
+                )
+                primary_reference_id = (
+                    snapshot.profile.visual.reference_ids[0]
+                    if snapshot.profile.visual.is_locked
+                    else None
                 )
                 candidate = _image_assets().store_candidate(
                     profile_id=snapshot.profile.id,
@@ -654,6 +712,8 @@ def main(argv: list[str] | None = None) -> int:
                     image_bytes=image_bytes,
                     task_scope=args.task_scope,
                     source="codex_native",
+                    role=role,
+                    primary_reference_id=primary_reference_id,
                 )
                 print(
                     json.dumps(
@@ -662,6 +722,8 @@ def main(argv: list[str] | None = None) -> int:
                             "candidate_id": candidate.candidate_id,
                             "profile_version": snapshot.version,
                             "identity_version": snapshot.profile.visual.identity_version,
+                            "role": candidate.role,
+                            "base_pack_revision": candidate.base_pack_revision,
                             "next_action": "只展示候选；用户明确确认后再固定",
                             "api_key_required": False,
                         },
@@ -672,24 +734,74 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if snapshot.version != args.profile_version:
-                raise ProfileStoreError("Codex Persona 已变化，请重新生成并确认候选原型")
+                raise _IdentityConfirmationRetry(
+                    "Codex Persona 已变化，请使用当前版本重新确认候选原型",
+                    retry_profile_version=snapshot.version,
+                )
             assets = _image_assets()
             reference = assets.confirm_candidate(
                 candidate_id=args.candidate_id,
                 profile_id=snapshot.profile.id,
                 identity_version=snapshot.profile.visual.identity_version,
                 task_scope=args.task_scope,
+                retain_candidate=True,
             )
-            bound = profile_store.bind_reference(
-                reference_id=reference.reference_id,
+            if reference.role == PRIMARY_FACE:
+                try:
+                    bound = profile_store.bind_reference(
+                        reference_id=reference.reference_id,
+                        identity_version=snapshot.profile.visual.identity_version,
+                        expected_version=snapshot.version,
+                    )
+                except ProfileStoreError as bind_error:
+                    latest = None
+                    latest_read_succeeded = False
+                    try:
+                        latest = profile_store.read()
+                        latest_read_succeeded = True
+                    except ProfileStoreError:
+                        pass
+                    if (
+                        latest is not None
+                        and latest.profile.visual.identity_version
+                        == snapshot.profile.visual.identity_version
+                        and latest.profile.visual.reference_ids
+                        == (reference.reference_id,)
+                    ):
+                        bound = latest
+                    elif latest_read_succeeded:
+                        assets.rollback_primary_confirmation(
+                            candidate_id=args.candidate_id,
+                            reference_id=reference.reference_id,
+                            profile_id=snapshot.profile.id,
+                            identity_version=snapshot.profile.visual.identity_version,
+                            task_scope=args.task_scope,
+                        )
+                        if latest is not None:
+                            raise _IdentityConfirmationRetry(
+                                str(bind_error),
+                                retry_profile_version=latest.version,
+                            ) from bind_error
+                        raise
+                    else:
+                        raise
+            else:
+                if not snapshot.profile.visual.is_locked:
+                    raise PhotoWorkflowError("增强参考不能在主脸确认前启用")
+                bound = snapshot
+            assets.discard_candidate(
+                candidate_id=args.candidate_id,
+                profile_id=snapshot.profile.id,
                 identity_version=snapshot.profile.visual.identity_version,
-                expected_version=snapshot.version,
+                task_scope=args.task_scope,
             )
             print(
                 json.dumps(
                     {
                         "stage": "identity_confirmed",
                         "reference_id": reference.reference_id,
+                        "role": reference.role,
+                        "pack_revision": reference.pack_revision,
                         "profile_version": bound.version,
                         "api_key_required": False,
                     },
@@ -731,6 +843,18 @@ def main(argv: list[str] | None = None) -> int:
             payload = host_result.to_dict()
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
+    except _IdentityConfirmationRetry as exc:
+        print(
+            json.dumps(
+                {
+                    "error": str(exc),
+                    "retry_profile_version": exc.retry_profile_version,
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 2
     except (
         AuthorizationError,
         CodexImageReceiptError,

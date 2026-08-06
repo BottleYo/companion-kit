@@ -330,7 +330,19 @@ function renderProfile(profile) {
   renderDraft(profileAsDraft(profile));
   setText(elements.profileStatus, "已配置");
   const locked = profile.visual_identity.status === "locked" && profile.visual_identity.reference_count === 1;
-  setText(elements.referenceStatus, locked ? "已确认固定脸；后续照片只锁脸部身份" : "尚未固定人物原型；第一次要照片时再决定");
+  const pack = state?.photo_modes?.identity_pack;
+  if (!locked) {
+    setText(elements.referenceStatus, "尚未固定人物原型；第一次要照片时再决定");
+  } else if (!pack?.ready) {
+    setText(elements.referenceStatus, "身份参考暂时不可用；人物生图会暂停，不会偷偷换脸");
+  } else if (pack.level === "basic") {
+    setText(elements.referenceStatus, "形象稳定性：基础 · 主脸已确认，普通自拍已经可以复用");
+  } else {
+    const additions = [];
+    if (pack.roles.includes("profile_face")) additions.push("侧脸");
+    if (pack.roles.includes("body_shape")) additions.push("体型");
+    setText(elements.referenceStatus, `形象稳定性：已增强 · 已补充${additions.join("和")}`);
+  }
 }
 
 async function loadState() {

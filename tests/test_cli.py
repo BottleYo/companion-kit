@@ -11,8 +11,10 @@ from unittest.mock import patch
 from companion_kit.cli import _local_port, main
 from companion_kit.codex_image_receipts import CodexImageReceiptStore
 from companion_kit.initializer import initialize_profile
+from companion_kit.identity_pack import PROFILE_FACE
+from companion_kit.image_assets import ImageAssetStore
 from companion_kit.openai_image_api import ImageApiResult
-from companion_kit.profile_store import ProfileStore
+from companion_kit.profile_store import ProfileStore, ProfileStoreError
 from tests.png_fixture import tiny_png
 
 
@@ -91,6 +93,49 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(confirmed["stage"], "identity_confirmed")
                 self.assertFalse(confirmed["api_key_required"])
 
+                profile_path = codex_home / "generated_images" / "profile.png"
+                profile_path.write_bytes(tiny_png(rgba=b"\x60\x40\x20\xff"))
+                CodexImageReceiptStore().record(
+                    session_id="codex-task-two",
+                    tool_use_id="image-tool-two",
+                    paths=(profile_path,),
+                )
+                profile_stage_output = io.StringIO()
+                with redirect_stdout(profile_stage_output):
+                    profile_stage_code = main(
+                        [
+                            "identity",
+                            "stage-native",
+                            "--file",
+                            str(profile_path),
+                            "--task-scope",
+                            "codex-task-two",
+                            "--role",
+                            PROFILE_FACE,
+                        ]
+                    )
+                profile_stage = json.loads(profile_stage_output.getvalue())
+                profile_confirm_output = io.StringIO()
+                with redirect_stdout(profile_confirm_output):
+                    profile_confirm_code = main(
+                        [
+                            "identity",
+                            "confirm",
+                            "--candidate-id",
+                            profile_stage["candidate_id"],
+                            "--task-scope",
+                            "codex-task-two",
+                            "--profile-version",
+                            profile_stage["profile_version"],
+                        ]
+                    )
+                profile_confirm = json.loads(profile_confirm_output.getvalue())
+
+                self.assertEqual(profile_stage_code, 0)
+                self.assertEqual(profile_confirm_code, 0)
+                self.assertEqual(profile_stage["role"], PROFILE_FACE)
+                self.assertEqual(profile_confirm["role"], PROFILE_FACE)
+
                 status_output = io.StringIO()
                 with redirect_stdout(status_output):
                     status_code = main(["photo", "status"])
@@ -99,6 +144,271 @@ class CliTests(unittest.TestCase):
                 self.assertTrue(status["reference_configured"])
                 self.assertTrue(status["reference_ready"])
                 self.assertEqual(status["cross_task_reference_bridge"], "ready")
+                self.assertEqual(
+                    status["identity_pack"]["roles"],
+                    ["primary_face", "profile_face"],
+                )
+                self.assertEqual(status["identity_pack"]["level"], "enhanced")
+                snapshot = ProfileStore(skill_root=SKILL_ROOT).read()
+                self.assertEqual(
+                    snapshot.profile.visual.reference_ids,
+                    (confirmed["reference_id"],),
+                )
+                self.assertEqual(
+                    list((root / "home" / "private" / "images").rglob("pending.png")),
+                    [],
+                )
+
+    def test_codex_identity_enhancement_requires_confirmed_primary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            codex_home = root / "codex-home"
+            source = codex_home / "generated_images" / "profile.png"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(tiny_png())
+            error = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(root / "home"), "CODEX_HOME": str(codex_home)},
+                clear=True,
+            ):
+                initialize_profile(
+                    skill_root=SKILL_ROOT,
+                    template_id="warm_healer",
+                    display_name="小禾",
+                )
+                CodexImageReceiptStore().record(
+                    session_id="codex-task",
+                    tool_use_id="image-tool",
+                    paths=(source,),
+                )
+                with redirect_stderr(error):
+                    code = main(
+                        [
+                            "identity",
+                            "stage-native",
+                            "--file",
+                            str(source),
+                            "--task-scope",
+                            "codex-task",
+                            "--role",
+                            PROFILE_FACE,
+                        ]
+                    )
+
+            self.assertEqual(code, 2)
+            self.assertIn("主脸", error.getvalue())
+
+    def test_failed_primary_binding_restores_same_confirmable_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            codex_home = root / "codex-home"
+            candidate_path = codex_home / "generated_images" / "candidate.png"
+            candidate_path.parent.mkdir(parents=True)
+            candidate_path.write_bytes(tiny_png())
+            with patch.dict(
+                os.environ,
+                {
+                    "COMPANION_HOME": str(root / "home"),
+                    "CODEX_HOME": str(codex_home),
+                },
+                clear=True,
+            ):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(
+                        main(
+                            [
+                                "init",
+                                "--host",
+                                "codex",
+                                "--template",
+                                "warm_healer",
+                                "--display-name",
+                                "小禾",
+                                "--json",
+                            ]
+                        ),
+                        0,
+                    )
+                CodexImageReceiptStore().record(
+                    session_id="codex-recovery-task",
+                    tool_use_id="image-tool",
+                    paths=(candidate_path,),
+                )
+                staged_output = io.StringIO()
+                with redirect_stdout(staged_output):
+                    self.assertEqual(
+                        main(
+                            [
+                                "identity",
+                                "stage-native",
+                                "--file",
+                                str(candidate_path),
+                                "--task-scope",
+                                "codex-recovery-task",
+                            ]
+                        ),
+                        0,
+                    )
+                staged = json.loads(staged_output.getvalue())
+                confirm_args = [
+                    "identity",
+                    "confirm",
+                    "--candidate-id",
+                    staged["candidate_id"],
+                    "--task-scope",
+                    "codex-recovery-task",
+                    "--profile-version",
+                    staged["profile_version"],
+                ]
+
+                def change_profile_then_fail(
+                    store: ProfileStore,
+                    **_: object,
+                ) -> None:
+                    current = store.read()
+                    store.save_draft(
+                        expected_version=current.version,
+                        display_name="小禾（刚调整）",
+                    )
+                    raise ProfileStoreError("模拟 Persona 版本冲突")
+
+                first_error = io.StringIO()
+                with (
+                    patch.object(
+                        ProfileStore,
+                        "bind_reference",
+                        new=change_profile_then_fail,
+                    ),
+                    redirect_stderr(first_error),
+                ):
+                    first_code = main(confirm_args)
+
+                self.assertEqual(first_code, 2)
+                first_payload = json.loads(first_error.getvalue())
+                self.assertIn("版本冲突", first_payload["error"])
+                self.assertNotEqual(
+                    first_payload["retry_profile_version"],
+                    staged["profile_version"],
+                )
+                image_root = root / "home" / "private" / "images"
+                self.assertEqual(len(list(image_root.rglob("pending.png"))), 1)
+                self.assertEqual(list(image_root.rglob("selected.png")), [])
+                self.assertEqual(list(image_root.rglob("pack.json")), [])
+
+                retry_args = [*confirm_args]
+                retry_args[-1] = first_payload["retry_profile_version"]
+                recovered_output = io.StringIO()
+                with redirect_stdout(recovered_output):
+                    recovered_code = main(retry_args)
+                recovered = json.loads(recovered_output.getvalue())
+
+                self.assertEqual(recovered_code, 0)
+                self.assertEqual(recovered["role"], "primary_face")
+                snapshot = ProfileStore(skill_root=SKILL_ROOT).read()
+                self.assertTrue(snapshot.profile.visual.is_locked)
+
+    def test_unknown_post_commit_result_never_rolls_back_bound_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            codex_home = root / "codex-home"
+            candidate_path = codex_home / "generated_images" / "candidate.png"
+            candidate_path.parent.mkdir(parents=True)
+            candidate_path.write_bytes(tiny_png())
+            with patch.dict(
+                os.environ,
+                {
+                    "COMPANION_HOME": str(root / "home"),
+                    "CODEX_HOME": str(codex_home),
+                },
+                clear=True,
+            ):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(
+                        main(
+                            [
+                                "init",
+                                "--host",
+                                "codex",
+                                "--template",
+                                "warm_healer",
+                                "--display-name",
+                                "小禾",
+                                "--json",
+                            ]
+                        ),
+                        0,
+                    )
+                CodexImageReceiptStore().record(
+                    session_id="codex-unknown-task",
+                    tool_use_id="image-tool",
+                    paths=(candidate_path,),
+                )
+                staged_output = io.StringIO()
+                with redirect_stdout(staged_output):
+                    self.assertEqual(
+                        main(
+                            [
+                                "identity",
+                                "stage-native",
+                                "--file",
+                                str(candidate_path),
+                                "--task-scope",
+                                "codex-unknown-task",
+                            ]
+                        ),
+                        0,
+                    )
+                staged = json.loads(staged_output.getvalue())
+                original_bind = ProfileStore.bind_reference
+                original_read = ProfileStore.read
+                state = {"committed": False}
+
+                def read_with_unknown_result(store: ProfileStore):
+                    if state["committed"]:
+                        raise ProfileStoreError("模拟提交后无法复读 Persona")
+                    return original_read(store)
+
+                def bind_then_lose_result(store: ProfileStore, **kwargs: object):
+                    original_bind(store, **kwargs)
+                    state["committed"] = True
+                    raise ProfileStoreError("模拟 Persona 已提交但结果未知")
+
+                error = io.StringIO()
+                with (
+                    patch.object(
+                        ProfileStore,
+                        "read",
+                        new=read_with_unknown_result,
+                    ),
+                    patch.object(
+                        ProfileStore,
+                        "bind_reference",
+                        new=bind_then_lose_result,
+                    ),
+                    redirect_stderr(error),
+                ):
+                    code = main(
+                        [
+                            "identity",
+                            "confirm",
+                            "--candidate-id",
+                            staged["candidate_id"],
+                            "--task-scope",
+                            "codex-unknown-task",
+                            "--profile-version",
+                            staged["profile_version"],
+                        ]
+                    )
+
+                self.assertEqual(code, 2)
+                self.assertIn("结果未知", error.getvalue())
+                snapshot = ProfileStore(skill_root=SKILL_ROOT).read()
+                self.assertTrue(snapshot.profile.visual.is_locked)
+                image_root = root / "home" / "private" / "images"
+                self.assertEqual(len(list(image_root.rglob("selected.png"))), 1)
+                self.assertEqual(len(list(image_root.rglob("pack.json"))), 1)
+                self.assertEqual(len(list(image_root.rglob("pending.png"))), 1)
 
     def test_local_port_accepts_auto_and_rejects_out_of_range_values(self) -> None:
         self.assertEqual(_local_port("0"), 0)
@@ -252,6 +562,55 @@ class CliTests(unittest.TestCase):
             self.assertFalse(status_payload["strict"]["auth_ready"])
             self.assertNotIn("native_preview", status_payload)
             self.assertFalse((root / "hosts" / "hermes" / "private").exists())
+
+    def test_event_host_status_keeps_legacy_reference_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with patch.dict(os.environ, {"COMPANION_HOME": str(root)}, clear=True):
+                initialize_profile(
+                    skill_root=SKILL_ROOT,
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    host="hermes",
+                )
+                profile_path = (
+                    root / "hosts" / "hermes" / "profiles" / "default.toml"
+                )
+                profile_store = ProfileStore(
+                    skill_root=SKILL_ROOT,
+                    profile_path=profile_path,
+                )
+                snapshot = profile_store.read()
+                assets = ImageAssetStore(
+                    root / "hosts" / "hermes" / "private" / "images"
+                )
+                candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(),
+                    task_scope="hermes-task",
+                )
+                reference = assets.confirm_candidate(
+                    candidate_id=candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="hermes-task",
+                )
+                profile_store.bind_reference(
+                    reference_id=reference.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+                next(assets.root.rglob("pack.json")).unlink()
+
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    code = main(["event-photo", "status", "--host", "hermes"])
+
+            payload = json.loads(output.getvalue())
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["reference_configured"])
+            self.assertTrue(payload["reference_ready"])
 
     def test_beginner_init_hint_matches_selected_host(self) -> None:
         expected_hints = {

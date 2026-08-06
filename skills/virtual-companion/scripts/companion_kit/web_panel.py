@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import webbrowser
 
 from .host_install import HostInstaller
+from .image_assets import ImageAssetError, ImageAssetStore
 from .initializer import default_profile_path
 from .installer import InstallError
 from .profile_store import ProfileConflict, ProfileStore, ProfileStoreError
@@ -147,6 +148,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         return payload
 
     def _state_payload(self) -> dict[str, object]:
+        snapshot = None
         try:
             snapshot = self.server.store.read()
             profile = snapshot.to_dict() if snapshot else None
@@ -168,6 +170,45 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                 }
             ]
 
+        identity_pack: dict[str, object]
+        if not profile or profile["visual"]["reference_count"] != 1:
+            identity_pack = {
+                "level": "unset",
+                "ready": False,
+                "roles": [],
+                "count": 0,
+            }
+        else:
+            image_root = self.server.store.profile_path.parents[1] / "private" / "images"
+            if not image_root.is_dir() or snapshot is None:
+                identity_pack = {
+                    "level": "unavailable",
+                    "ready": False,
+                    "roles": [],
+                    "count": 0,
+                }
+            else:
+                try:
+                    resolved_pack = ImageAssetStore(image_root).resolve_identity_pack(
+                        primary_reference_id=snapshot.profile.visual.reference_ids[0],
+                        profile_id=snapshot.profile.id,
+                        identity_version=snapshot.profile.visual.identity_version,
+                    )
+                except (ImageAssetError, OSError):
+                    identity_pack = {
+                        "level": "unavailable",
+                        "ready": False,
+                        "roles": [],
+                        "count": 0,
+                    }
+                else:
+                    identity_pack = {
+                        "level": "enhanced" if len(resolved_pack.members) > 1 else "basic",
+                        "ready": True,
+                        "roles": list(resolved_pack.roles),
+                        "count": len(resolved_pack.members),
+                    }
+
         photo_modes = {
             "codex_native": {
                 "title": "Codex 内置生图",
@@ -177,8 +218,9 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             "identity_reuse": {
                 "title": "固定形象复用",
                 "status": "本地链路已就绪，等待真实 Codex 验收",
-                "description": "候选只在你明确确认后进入私有参考槽；新任务会尝试把同一张参考图交给 Codex 内置生图，不需要 API Key。",
+                "description": "主脸只在你明确确认后固定；侧脸和体型可以按需补充，新任务会按场景选择一到两张参考，不需要 API Key。",
             },
+            "identity_pack": identity_pack,
             "reference_configured": bool(
                 profile and profile["visual"]["reference_count"] == 1
             ),
