@@ -6,9 +6,12 @@ import os
 from pathlib import Path
 import sys
 
+from . import __version__
+from .backup import BackupError, BackupManager, CompanionDataLayout
 from .config import ConfigError, load_profile
 from .codex_image_receipts import CodexImageReceiptError, CodexImageReceiptStore
 from .codex_photo import CodexPhotoWorkflow, PhotoWorkflowError
+from .codex_upgrade import CodexUpgradeExecutor
 from .contracts import HostCapabilities, HostClass, RequestEnvelope
 from .event_adapter import openclaw_native_preview_request
 from .event_job_store import EventJobContext, EventJobError, EventJobStore
@@ -36,6 +39,7 @@ from .kernel import CompanionKernel
 from .openai_image_api import ImageApiError, OpenAIImageClient
 from .photo_authorization import AuthorizationError, PhotoAuthorizationStore
 from .profile_store import ProfileSnapshot, ProfileStore, ProfileStoreError
+from .upgrade import CodexUpgradePlanner, UpgradeError
 from .web_panel import run_panel
 
 
@@ -253,6 +257,62 @@ def _parser() -> argparse.ArgumentParser:
         help="photo run 返回的人格配置版本",
     )
 
+    backup = subparsers.add_parser(
+        "backup",
+        help="创建、校验或恢复 Codex Persona 本地恢复点",
+    )
+    backup_commands = backup.add_subparsers(
+        dest="backup_command",
+        required=True,
+    )
+    backup_commands.add_parser(
+        "create",
+        help="备份 Persona、关系状态和人物参考，不修改原数据",
+    )
+    backup_commands.add_parser("list", help="列出已有恢复点")
+    backup_verify = backup_commands.add_parser("verify", help="重新校验恢复点")
+    backup_verify.add_argument("--backup-id", required=True)
+    backup_recover = backup_commands.add_parser(
+        "recover-copy",
+        help="恢复到一个全新目录，不覆盖正在使用的数据",
+    )
+    backup_recover.add_argument("--backup-id", required=True)
+    backup_recover.add_argument("--destination", required=True)
+
+    upgrade = subparsers.add_parser(
+        "upgrade",
+        help="只读检查和预览 Codex 升级计划",
+    )
+    upgrade_commands = upgrade.add_subparsers(
+        dest="upgrade_command",
+        required=True,
+    )
+    upgrade_commands.add_parser("check", help="检查当前版本、安装状态和数据健康")
+    upgrade_commands.add_parser("plan", help="预览备份、迁移和 Plugin 切换步骤")
+    upgrade_commands.add_parser(
+        "adopt",
+        help="登记既有 Codex 安装，不移动或修改 Persona、关系和图片",
+    )
+    upgrade_apply = upgrade_commands.add_parser(
+        "apply",
+        help="创建恢复点和旧程序快照后更新 Codex Plugin",
+    )
+    upgrade_apply.add_argument(
+        "--confirm",
+        action="store_true",
+        help="确认替换 Codex Plugin；不会覆盖 Persona、关系或图片",
+    )
+    upgrade_rollback = upgrade_commands.add_parser(
+        "rollback",
+        help="用升级前程序快照恢复旧 Plugin，不覆盖用户数据",
+    )
+    upgrade_rollback.add_argument("--snapshot-id", required=True)
+    upgrade_rollback.add_argument(
+        "--confirm",
+        action="store_true",
+        help="确认替换当前 Codex Plugin",
+    )
+
     install = subparsers.add_parser(
         "install",
         help="安装 Companion Kit；Codex 使用完整 Plugin，默认只预览",
@@ -291,6 +351,20 @@ def _config_path(explicit: str | None, host: str | None = None) -> Path:
 
 def _private_data_root(host: str | None = None) -> Path:
     return default_profile_path(host).parents[1] / "private"
+
+
+def _backup_manager() -> BackupManager:
+    return BackupManager(
+        CompanionDataLayout.for_codex(),
+        product_version=__version__,
+    )
+
+
+def _upgrade_planner() -> CodexUpgradePlanner:
+    return CodexUpgradePlanner(
+        plugin_root=_skill_root().parents[1],
+        layout=CompanionDataLayout.for_codex(),
+    )
 
 
 def _image_assets(host: str | None = None) -> ImageAssetStore:
@@ -443,6 +517,57 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "templates":
             _print_templates()
+            return 0
+
+        if args.command == "backup":
+            manager = _backup_manager()
+            if args.backup_command == "create":
+                payload = manager.create().to_dict()
+            elif args.backup_command == "list":
+                payload = {
+                    "backups": [snapshot.to_dict() for snapshot in manager.list()]
+                }
+            elif args.backup_command == "verify":
+                payload = manager.verify(args.backup_id).to_dict()
+            else:
+                manager.recover_copy(args.backup_id, args.destination)
+                payload = {
+                    "backup_id": args.backup_id,
+                    "created": True,
+                    "live_data_replaced": False,
+                }
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "upgrade":
+            planner = _upgrade_planner()
+            if args.upgrade_command == "check":
+                payload = planner.check().to_dict()
+            elif args.upgrade_command == "plan":
+                payload = planner.plan().to_dict()
+            elif args.upgrade_command == "adopt":
+                receipt = planner.adopt()
+                payload = {
+                    "recorded": True,
+                    "host": "codex",
+                    "plugin_version": receipt.plugin_version,
+                    "marketplace_name": receipt.marketplace_name,
+                    "marketplace_source_type": receipt.marketplace_source_type,
+                    "durable_data_changed": False,
+                }
+            else:
+                executor = CodexUpgradeExecutor(
+                    planner=planner,
+                    backups=_backup_manager(),
+                )
+                if args.upgrade_command == "apply":
+                    payload = executor.apply(confirm=args.confirm).to_dict()
+                else:
+                    payload = executor.rollback(
+                        snapshot_id=args.snapshot_id,
+                        confirm=args.confirm,
+                    ).to_dict()
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
 
         if args.command == "ui":
@@ -808,6 +933,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except (
         AuthorizationError,
+        BackupError,
         CodexImageReceiptError,
         ConfigError,
         ImageApiError,
@@ -818,6 +944,7 @@ def main(argv: list[str] | None = None) -> int:
         EventPhotoError,
         PhotoWorkflowError,
         ProfileStoreError,
+        UpgradeError,
     ) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2

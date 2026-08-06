@@ -344,6 +344,23 @@ input:not([type="checkbox"]):focus, textarea:focus, select:focus {
 .host-card p { margin: 5px 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
 .host-card button { border: 1px solid var(--line); border-radius: 11px; background: white; color: var(--ink); padding: 10px 12px; font-weight: 700; }
 
+.maintenance-card { background: #f8f7f1; }
+.maintenance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
+.maintenance-action {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  padding: 18px;
+  background: #fffefb;
+}
+.maintenance-action p { margin: 7px 0 0; color: var(--muted); font-size: 0.87rem; line-height: 1.6; }
+.maintenance-action .button { align-self: flex-start; }
+.maintenance-buttons { display: flex; flex-wrap: wrap; gap: 9px; }
+
 .privacy-strip { display: flex; align-items: flex-start; gap: 12px; padding: 12px 4px; color: var(--muted); font-size: 0.87rem; line-height: 1.65; }
 .privacy-strip > span { color: var(--accent); }
 .privacy-strip p { margin: 0; }
@@ -374,7 +391,7 @@ input:not([type="checkbox"]):focus, textarea:focus, select:focus {
   .hero { width: min(100% - 28px, 1120px); padding: 48px 0 34px; }
   main { width: min(100% - 24px, 1120px); }
   .section-heading, .save-row { align-items: flex-start; flex-direction: column; }
-  .template-grid, .editor-grid, .relationship-settings { grid-template-columns: 1fr; }
+  .template-grid, .editor-grid, .relationship-settings, .maintenance-grid { grid-template-columns: 1fr; }
   .editor-grid__wide { grid-column: auto; }
   .create-actions { grid-template-columns: 1fr; }
   .save-row .button { width: 100%; }
@@ -385,4 +402,6 @@ input:not([type="checkbox"]):focus, textarea:focus, select:focus {
   .identity-preview img { min-height: 210px; height: 78vw; }
   .host-card { grid-template-columns: auto 1fr; }
   .host-card button { grid-column: 1 / -1; width: 100%; }
+  .maintenance-action .button { width: 100%; }
+  .maintenance-buttons { display: grid; grid-template-columns: 1fr; }
 }

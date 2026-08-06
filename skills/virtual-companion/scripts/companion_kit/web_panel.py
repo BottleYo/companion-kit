@@ -9,6 +9,9 @@ from typing import Mapping
 from urllib.parse import urlsplit
 import webbrowser
 
+from . import __version__
+from .backup import BackupError, BackupManager, CompanionDataLayout
+from .codex_upgrade import CodexUpgradeExecutor
 from .host_install import HostInstaller
 from .identity_pack import PRIMARY_FACE
 from .identity_workflow import (
@@ -20,6 +23,7 @@ from .initializer import default_profile_path
 from .installer import InstallError
 from .profile_store import ProfileConflict, ProfileStore, ProfileStoreError
 from .public_bundle import contains_absolute_path
+from .upgrade import CodexUpgradePlanner, UpgradeError
 
 
 _ASSETS = {
@@ -39,6 +43,8 @@ _PROFILE_KEYS = {
 }
 _DRAFT_KEYS = {"template_id", "description", "display_name", "overrides"}
 _INSTALL_KEYS = {"host", "confirm"}
+_BACKUP_KEYS = {"confirm"}
+_UPGRADE_APPLY_KEYS = {"confirm"}
 _IDENTITY_CONFIRM_KEYS = {"candidate_id", "profile_version", "confirm"}
 _MAX_BODY_BYTES = 24 * 1024
 _MAX_IMAGE_BODY_BYTES = 12 * 1024 * 1024
@@ -66,11 +72,17 @@ class CompanionPanelServer(ThreadingHTTPServer):
         *,
         stores: Mapping[str, ProfileStore],
         installer: HostInstaller,
+        backup_manager: BackupManager,
+        upgrade_planner: CodexUpgradePlanner,
+        upgrade_executor: CodexUpgradeExecutor,
         nonce: str,
     ) -> None:
         self.stores = dict(stores)
         self.store = self.stores["codex"]
         self.installer = installer
+        self.backup_manager = backup_manager
+        self.upgrade_planner = upgrade_planner
+        self.upgrade_executor = upgrade_executor
         self.panel_nonce = nonce
         super().__init__(server_address, CompanionPanelHandler)
 
@@ -265,7 +277,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         }
 
         return {
-            "version": "0.7.0-dev.4",
+            "version": __version__,
             "phase": "本轮只优化 Codex Persona 创建、聊天与内置生图体验；其他宿主配置保持独立。",
             "templates": [
                 template.to_dict() for template in self.server.store.templates()
@@ -292,6 +304,39 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                     500,
                     {"error": _safe_error(exc, "面板无法读取内置模板")},
                 )
+            return
+
+        if path == "/api/backups":
+            if not self._authenticated():
+                self._send_json(401, {"error": "面板授权已失效，请重新启动"})
+                return
+            try:
+                backups = [
+                    snapshot.to_dict()
+                    for snapshot in self.server.backup_manager.list()
+                ]
+            except BackupError as exc:
+                self._send_json(
+                    409,
+                    {"error": _safe_error(exc, "恢复点暂时无法安全读取")},
+                )
+                return
+            self._send_json(200, {"backups": backups})
+            return
+
+        if path == "/api/upgrade/check":
+            if not self._authenticated():
+                self._send_json(401, {"error": "面板授权已失效，请重新启动"})
+                return
+            try:
+                check = self.server.upgrade_planner.check()
+            except UpgradeError as exc:
+                self._send_json(
+                    409,
+                    {"error": _safe_error(exc, "暂时无法安全检查更新")},
+                )
+                return
+            self._send_json(200, {"upgrade": check.to_dict()})
             return
 
         if path == "/api/identity/primary":
@@ -345,10 +390,50 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         if path == "/api/install":
             self._install_host(payload)
             return
+        if path == "/api/backups":
+            self._create_backup(payload)
+            return
+        if path == "/api/upgrade/apply":
+            self._apply_upgrade(payload)
+            return
         if path == "/api/identity/confirm":
             self._confirm_identity(payload)
             return
         self._send_json(404, {"error": "接口不存在"})
+
+    def _create_backup(self, payload: dict[str, object]) -> None:
+        if set(payload) - _BACKUP_KEYS:
+            self._send_json(400, {"error": "恢复点请求包含不允许的字段"})
+            return
+        if payload.get("confirm") is not True:
+            self._send_json(409, {"error": "请先确认创建本地恢复点"})
+            return
+        try:
+            snapshot = self.server.backup_manager.create()
+        except BackupError as exc:
+            self._send_json(
+                409,
+                {"error": _safe_error(exc, "恢复点创建失败，现有数据没有改动")},
+            )
+            return
+        self._send_json(201, {"backup": snapshot.to_dict()})
+
+    def _apply_upgrade(self, payload: dict[str, object]) -> None:
+        if set(payload) - _UPGRADE_APPLY_KEYS:
+            self._send_json(400, {"error": "升级请求包含不允许的字段"})
+            return
+        if payload.get("confirm") is not True:
+            self._send_json(409, {"error": "请先单独确认替换 Codex Plugin"})
+            return
+        try:
+            result = self.server.upgrade_executor.apply(confirm=True)
+        except UpgradeError as exc:
+            self._send_json(
+                409,
+                {"error": _safe_error(exc, "升级没有完成，现有用户数据没有被覆盖")},
+            )
+            return
+        self._send_json(200, {"upgrade": result.to_dict()})
 
     def _stage_identity_candidate(self) -> None:
         try:
@@ -622,10 +707,22 @@ def create_panel_server(
         if profile_path is None
         else Path(os.path.abspath(Path(profile_path).expanduser()))
     )
+    layout = CompanionDataLayout.for_profile(codex_path)
+    backup_manager = BackupManager(layout, product_version=__version__)
+    upgrade_planner = CodexUpgradePlanner(
+        plugin_root=root.parents[1],
+        layout=layout,
+    )
     return CompanionPanelServer(
         ("127.0.0.1", port),
         stores={"codex": ProfileStore(skill_root=root, profile_path=codex_path)},
         installer=HostInstaller(skill_root=root, target_roots=install_roots),
+        backup_manager=backup_manager,
+        upgrade_planner=upgrade_planner,
+        upgrade_executor=CodexUpgradeExecutor(
+            planner=upgrade_planner,
+            backups=backup_manager,
+        ),
         nonce=token,
     )
 

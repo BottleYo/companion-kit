@@ -3,7 +3,9 @@ import subprocess
 import tempfile
 import unittest
 
+from companion_kit.backup import CompanionDataLayout
 from companion_kit.host_install import HostInstaller
+from companion_kit.upgrade import InstallationReceiptStore
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -67,9 +69,10 @@ class HostInstallTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve()
             installer = HostInstaller(
                 skill_root=SKILL_ROOT,
-                home=Path(tmp).resolve(),
+                home=home,
                 environment={},
                 which=lambda name: "/usr/bin/codex" if name == "codex" else None,
                 runner=runner,
@@ -77,7 +80,14 @@ class HostInstallTests(unittest.TestCase):
 
             result = installer.install("codex")
 
+            receipt = InstallationReceiptStore(
+                CompanionDataLayout.for_codex(data_root=home / ".companion-kit")
+            ).read()
+
         self.assertTrue(result.applied)
+        self.assertTrue(result.upgrade_registered)
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt.plugin_version, "0.7.0-dev.5")
         self.assertEqual(result.plan.method, "codex_plugin")
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][0][:4], ["/usr/bin/codex", "plugin", "marketplace", "add"])

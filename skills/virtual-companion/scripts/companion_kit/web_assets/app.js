@@ -56,6 +56,12 @@ const elements = {
   identityPlaceholderCopy: document.querySelector("#identityPlaceholderCopy"),
   identityCandidateStatus: document.querySelector("#identityCandidateStatus"),
   hostGrid: document.querySelector("#hostGrid"),
+  maintenanceStatus: document.querySelector("#maintenanceStatus"),
+  backupSummary: document.querySelector("#backupSummary"),
+  upgradeSummary: document.querySelector("#upgradeSummary"),
+  createBackup: document.querySelector("#createBackup"),
+  checkUpgrade: document.querySelector("#checkUpgrade"),
+  applyUpgrade: document.querySelector("#applyUpgrade"),
   installDialog: document.querySelector("#installDialog"),
   dialogTitle: document.querySelector("#dialogTitle"),
   dialogSummary: document.querySelector("#dialogSummary"),
@@ -543,6 +549,127 @@ function renderProfile(profile) {
   renderIdentitySetup(profile);
 }
 
+async function loadBackups() {
+  try {
+    const payload = await api("/api/backups");
+    const backups = Array.isArray(payload.backups) ? payload.backups : [];
+    if (!backups.length) {
+      setText(elements.backupSummary, "还没有恢复点。第一次更新前，建议先收好一份。");
+      return;
+    }
+    const latest = backups[0];
+    const itemCount = Number(latest.item_count || 0);
+    setText(
+      elements.backupSummary,
+      itemCount > 0
+        ? `已有 ${backups.length} 个恢复点；最近一份包含 ${itemCount} 项资料，并且刚刚重新校验过。`
+        : `已有 ${backups.length} 个已校验恢复点；目前还没有 Persona、关系或人物参考需要收进去。`,
+    );
+  } catch (error) {
+    setText(elements.backupSummary, error.message);
+  }
+}
+
+async function checkUpgrade() {
+  elements.checkUpgrade.disabled = true;
+  setText(elements.checkUpgrade, "正在检查…");
+  setText(elements.maintenanceStatus, "检查中");
+  try {
+    const payload = await api("/api/upgrade/check");
+    const upgrade = payload.upgrade || {};
+    const blockers = Array.isArray(upgrade.blockers) ? upgrade.blockers : [];
+    elements.applyUpgrade.hidden = true;
+    if (blockers.length) {
+      setText(elements.maintenanceStatus, "需要先处理");
+      setText(elements.upgradeSummary, blockers[0]);
+    } else if (upgrade.update_candidate) {
+      setText(elements.maintenanceStatus, "发现版本变化");
+      setText(
+        elements.upgradeSummary,
+        `Codex 当前是 ${upgrade.installed_version || "未知版本"}，项目准备的是 ${upgrade.release_version}。这里只做检查，不会直接替换。`,
+      );
+      if (
+        upgrade.marketplace_source_type === "local"
+        && upgrade.marketplace_matches_release_source === true
+      ) {
+        elements.applyUpgrade.hidden = false;
+      }
+    } else {
+      setText(elements.maintenanceStatus, "状态正常");
+      setText(elements.upgradeSummary, `Codex Plugin 与当前项目版本一致（${upgrade.release_version}）。`);
+    }
+  } catch (error) {
+    setText(elements.maintenanceStatus, "检查未完成");
+    setText(elements.upgradeSummary, error.message);
+    showToast(error.message);
+  } finally {
+    elements.checkUpgrade.disabled = false;
+    setText(elements.checkUpgrade, "再检查一次");
+  }
+}
+
+async function applyUpgrade() {
+  const confirmed = window.confirm(
+    "准备更新 Codex Plugin。建议先结束其他正在运行的 Codex 任务。\n\n面板会先备份 Persona、关系记录和人物参考，再保存旧程序；确认继续吗？",
+  );
+  if (!confirmed) return;
+  elements.applyUpgrade.disabled = true;
+  elements.checkUpgrade.disabled = true;
+  setText(elements.applyUpgrade, "正在安全更新…");
+  setText(elements.maintenanceStatus, "正在备份并更新");
+  try {
+    const payload = await api("/api/upgrade/apply", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
+    const result = payload.upgrade;
+    setText(elements.maintenanceStatus, "更新完成");
+    setText(
+      elements.upgradeSummary,
+      result.upgrade_registered === false
+        ? `已经从 ${result.from_version} 更新到 ${result.to_version}，但安装登记没有写入；恢复点 ${result.backup_id} 仍然有效，下次检查会提示补登记。`
+        : `已经从 ${result.from_version} 更新到 ${result.to_version}。恢复点 ${result.backup_id} 和旧程序快照都已保留；请新开一个 Codex 任务。`,
+    );
+    elements.applyUpgrade.hidden = true;
+    showToast("更新完成。新开一个 Codex 任务，就会使用新版本");
+    await loadBackups();
+  } catch (error) {
+    setText(elements.maintenanceStatus, "更新没有完成");
+    setText(elements.upgradeSummary, error.message);
+    showToast(error.message);
+  } finally {
+    elements.applyUpgrade.disabled = false;
+    elements.checkUpgrade.disabled = false;
+    setText(elements.applyUpgrade, "确认更新");
+  }
+}
+
+async function createBackup() {
+  elements.createBackup.disabled = true;
+  setText(elements.createBackup, "正在校验…");
+  setText(elements.maintenanceStatus, "正在创建恢复点");
+  try {
+    const payload = await api("/api/backups", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
+    setText(elements.maintenanceStatus, "恢复点已就绪");
+    setText(
+      elements.backupSummary,
+      `恢复点 ${payload.backup.backup_id} 已创建并校验，现有 Persona 和关系记录没有被改写。`,
+    );
+    showToast("恢复点已经收好；现在即使更新失败，原资料也还在");
+    await loadBackups();
+  } catch (error) {
+    setText(elements.maintenanceStatus, "备份未完成");
+    setText(elements.backupSummary, error.message);
+    showToast(error.message);
+  } finally {
+    elements.createBackup.disabled = false;
+    setText(elements.createBackup, "再备份一份");
+  }
+}
+
 async function loadState() {
   if (!token) {
     elements.authError.hidden = false;
@@ -558,6 +685,7 @@ async function loadState() {
   renderProfile(state.profile);
   renderTemplates();
   renderHosts();
+  await loadBackups();
 }
 
 document.querySelectorAll("[data-example]").forEach((button) => {
@@ -711,6 +839,10 @@ elements.resetIdentity.addEventListener("click", () => {
   renderIdentitySetup(state?.profile || null);
   setText(elements.identityCandidateStatus, "已退出当前预览。下次上传会安全替换本地候选槽；没有确认就不会固定成主脸。");
 });
+
+elements.createBackup.addEventListener("click", createBackup);
+elements.checkUpgrade.addEventListener("click", checkUpgrade);
+elements.applyUpgrade.addEventListener("click", applyUpgrade);
 
 elements.confirmInstall.addEventListener("click", async (event) => {
   event.preventDefault();

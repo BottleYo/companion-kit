@@ -225,9 +225,40 @@
         <div id="hostGrid" class="host-grid" aria-live="polite"></div>
       </section>
 
+      <section class="panel maintenance-card" aria-labelledby="maintenanceTitle">
+        <div class="section-heading">
+          <div>
+            <p class="step">以后更新时</p>
+            <h2 id="maintenanceTitle">先把回忆收好，再换新版本</h2>
+          </div>
+          <span id="maintenanceStatus" class="status-chip status-chip--soft">不会自动更新</span>
+        </div>
+        <p class="section-intro">程序和 TA 的资料分开保存。恢复点会收好 Persona、关系记录和已确认的人物参考；聊天临时图和运行缓存不塞进去，也不会在更新时被顺手清掉。</p>
+        <div class="maintenance-grid">
+          <article class="maintenance-action">
+            <div>
+              <strong>创建恢复点</strong>
+              <p id="backupSummary">正在查看这台电脑上有没有恢复点。</p>
+            </div>
+            <button id="createBackup" class="button button--primary" type="button">现在备份</button>
+          </article>
+          <article class="maintenance-action">
+            <div>
+              <strong>检查 Codex 安装</strong>
+              <p id="upgradeSummary">只有你按下按钮时才检查，不会偷偷联网或替换 Plugin。</p>
+            </div>
+            <div class="maintenance-buttons">
+              <button id="checkUpgrade" class="button button--secondary" type="button">检查一下</button>
+              <button id="applyUpgrade" class="button button--primary" type="button" hidden>确认更新</button>
+            </div>
+          </article>
+        </div>
+        <p class="hint">更新会先创建并校验 Persona 恢复点，再另存一份旧 Plugin。新版本即时检查不过就恢复旧程序；任何一步都不会拿旧备份覆盖正在使用的 Persona。</p>
+      </section>
+
       <section class="privacy-strip" aria-label="隐私说明">
         <span aria-hidden="true">●</span>
-        <p><strong>隐私边界：</strong>不读取现有私人 Persona、SOUL、USER、记忆、聊天记录或照片目录；不修改 Codex 全局个性化和全局记忆。人物配置、候选原型与确认后的参考图都保存在项目自己的私有区域。</p>
+        <p><strong>隐私边界：</strong>不会导入其他项目里的私人 Persona、SOUL、USER、记忆、聊天记录或照片，也不修改 Codex 全局个性化和全局记忆。面板只在本地读取这份 Companion Kit Persona，并把人物配置、关系记录与参考图留在项目自己的私有区域。</p>
       </section>
     </main>
 
