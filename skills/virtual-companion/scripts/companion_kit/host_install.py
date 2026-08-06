@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 from typing import Callable, Mapping, Sequence
+from uuid import uuid4
 
 from .installer import InstallError, install_skill
 from .public_bundle import inspect_public_tree, inspect_release_layout
@@ -19,6 +20,8 @@ _HOST_NAMES = {
 }
 _CODEX_MARKETPLACE_NAME = "companion-kit-preview"
 _CODEX_PLUGIN_NAME = "companion-kit"
+_LEGACY_SKILL_NAME = "virtual-companion"
+_LEGACY_MARKER_LIMIT = 256 * 1024
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,7 @@ class HostInstallPlan:
     available: bool
     apply_required: bool = True
     bootstrap_argv: tuple[str, ...] = ()
+    legacy_skill_count: int = 0
 
     def to_dict(self) -> dict[str, object]:
         def public_command(argv: tuple[str, ...]) -> list[str]:
@@ -71,6 +75,10 @@ class HostInstallPlan:
             "existing": self.existing,
             "available": self.available,
             "apply_required": self.apply_required,
+            "legacy_skill_count": self.legacy_skill_count,
+            "legacy_skill_action": (
+                "backup_and_disable" if self.legacy_skill_count else "none"
+            ),
         }
 
 
@@ -115,6 +123,109 @@ class HostInstaller:
     @property
     def plugin_root(self) -> Path:
         return self.skill_root.parents[1]
+
+    def _codex_user_roots(self) -> tuple[Path, ...]:
+        configured = self.environment.get("CODEX_HOME", "").strip()
+        candidates = [
+            Path(configured).expanduser() if configured else self.home / ".codex",
+            self.home / ".agents",
+        ]
+        roots: list[Path] = []
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except OSError as exc:
+                raise InstallError(f"无法检查旧版 Codex Skill：{exc}") from exc
+            if resolved not in roots:
+                roots.append(resolved)
+        return tuple(roots)
+
+    @staticmethod
+    def _bounded_text(path: Path) -> str:
+        if path.is_symlink() or not path.is_file():
+            raise InstallError("旧版 Skill 文件结构异常，已停止迁移")
+        try:
+            size = path.stat().st_size
+            if size > _LEGACY_MARKER_LIMIT:
+                raise InstallError("旧版 Skill 文件异常过大，已停止迁移")
+            return path.read_text(encoding="utf-8")
+        except UnicodeError as exc:
+            raise InstallError("旧版 Skill 文件编码异常，已停止迁移") from exc
+        except OSError as exc:
+            raise InstallError(f"无法读取旧版 Codex Skill：{exc}") from exc
+
+    def _legacy_codex_skills(self) -> tuple[tuple[Path, Path], ...]:
+        found: list[tuple[Path, Path]] = []
+        for codex_root in self._codex_user_roots():
+            skills_root = codex_root / "skills"
+            candidate = skills_root / _LEGACY_SKILL_NAME
+            if not (candidate.exists() or candidate.is_symlink()):
+                continue
+            if skills_root.is_symlink() or candidate.is_symlink():
+                raise InstallError("旧版 Skill 路径经过符号链接，已停止迁移")
+            if not candidate.is_dir():
+                raise InstallError("旧版 Skill 目标不是目录，已停止迁移")
+            if (candidate / "scripts").is_symlink():
+                raise InstallError("旧版 Skill 路径经过符号链接，已停止迁移")
+            skill_text = self._bounded_text(candidate / "SKILL.md")
+            entry_text = self._bounded_text(candidate / "scripts" / "companionctl.py")
+            normalized_lines = {
+                line.strip().lower().replace('"', "").replace("'", "")
+                for line in skill_text.splitlines()
+            }
+            recognized = (
+                "name: virtual-companion" in normalized_lines
+                and (
+                    "companion kit" in skill_text.lower()
+                    or "companion_kit" in entry_text
+                )
+            )
+            if not recognized:
+                raise InstallError(
+                    "发现同名 Skill，但无法确认它属于 Companion Kit；未做任何移动"
+                )
+            backup_root = codex_root / "legacy-skills"
+            if backup_root.is_symlink() or (
+                backup_root.exists() and not backup_root.is_dir()
+            ):
+                raise InstallError("旧版 Skill 备份目录不安全，已停止迁移")
+            found.append((candidate, backup_root))
+        return tuple(found)
+
+    @staticmethod
+    def _restore_legacy_skills(moved: Sequence[tuple[Path, Path]]) -> None:
+        for source, backup in reversed(tuple(moved)):
+            if source.exists() or source.is_symlink():
+                raise InstallError("Plugin 安装失败，且旧版 Skill 目标已被占用，无法自动恢复")
+            try:
+                backup.rename(source)
+            except OSError as exc:
+                raise InstallError("Plugin 安装失败，旧版 Skill 无法自动恢复") from exc
+            try:
+                backup.parent.rmdir()
+            except OSError:
+                pass
+
+    def _deactivate_legacy_skills(
+        self,
+        legacy_skills: Sequence[tuple[Path, Path]],
+    ) -> tuple[tuple[Path, Path], ...]:
+        moved: list[tuple[Path, Path]] = []
+        try:
+            for source, backup_root in legacy_skills:
+                backup_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+                if backup_root.is_symlink() or not backup_root.is_dir():
+                    raise InstallError("旧版 Skill 备份目录不安全，已停止迁移")
+                backup = backup_root / f"{_LEGACY_SKILL_NAME}-{uuid4().hex}"
+                source.rename(backup)
+                moved.append((source, backup))
+        except (InstallError, OSError) as exc:
+            if moved:
+                self._restore_legacy_skills(moved)
+            if isinstance(exc, InstallError):
+                raise
+            raise InstallError(f"无法备份旧版 Codex Skill：{exc}") from exc
+        return tuple(moved)
 
     def _target_root(self, host: str) -> Path:
         if host in self.target_roots:
@@ -163,6 +274,7 @@ class HostInstaller:
             executable = self.which("codex")
             plugin_root = self.plugin_root
             marketplace = plugin_root / ".agents" / "plugins" / "marketplace.json"
+            legacy_skills = self._legacy_codex_skills()
             available = (
                 executable is not None
                 and (plugin_root / ".codex-plugin" / "plugin.json").is_file()
@@ -192,6 +304,7 @@ class HostInstaller:
                 ),
                 existing=None,
                 available=available,
+                legacy_skill_count=len(legacy_skills),
             )
 
         target_root = self._target_root(normalized)
@@ -253,24 +366,30 @@ class HostInstaller:
             )
             if failures:
                 raise InstallError(failures[0])
-            for label, argv in (
-                ("注册本地来源", plan.bootstrap_argv),
-                ("安装 Plugin", plan.argv),
-            ):
-                try:
-                    completed = self.runner(
-                        list(argv),
-                        check=False,
-                        capture_output=True,
-                        text=True,
-                        timeout=120,
-                    )
-                except (OSError, subprocess.SubprocessError) as exc:
-                    raise InstallError(f"Codex {label}无法执行：{exc}") from exc
-                if completed.returncode != 0:
-                    raise InstallError(
-                        f"Codex {label}失败（退出码 {completed.returncode}）"
-                    )
+            legacy_skills = self._legacy_codex_skills()
+            moved = self._deactivate_legacy_skills(legacy_skills)
+            try:
+                for label, argv in (
+                    ("注册本地来源", plan.bootstrap_argv),
+                    ("安装 Plugin", plan.argv),
+                ):
+                    try:
+                        completed = self.runner(
+                            list(argv),
+                            check=False,
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                        )
+                    except (OSError, subprocess.SubprocessError) as exc:
+                        raise InstallError(f"Codex {label}无法执行：{exc}") from exc
+                    if completed.returncode != 0:
+                        raise InstallError(
+                            f"Codex {label}失败（退出码 {completed.returncode}）"
+                        )
+            except BaseException:
+                self._restore_legacy_skills(moved)
+                raise
             applied_plan = HostInstallPlan(
                 host=plan.host,
                 name=plan.name,
@@ -282,6 +401,7 @@ class HostInstaller:
                 existing=True,
                 available=True,
                 bootstrap_argv=plan.bootstrap_argv,
+                legacy_skill_count=len(moved),
             )
             return HostInstallResult(plan=applied_plan, applied=True)
 
