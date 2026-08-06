@@ -32,12 +32,13 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(codex["version"], project_version)
         self.assertEqual(claude["version"], "0.6.0-dev.1")
 
-    def test_codex_plugin_uses_quiet_runtime_and_explicit_skill(self) -> None:
+    def test_codex_plugin_uses_quiet_runtime_without_installing_a_skill(self) -> None:
         manifest = json.loads(
             (PROJECT_ROOT / ".codex-plugin" / "plugin.json").read_text(
                 encoding="utf-8"
             )
         )
+        self.assertNotIn("skills", manifest)
         prompts = manifest["interface"]["defaultPrompt"]
         self.assertIsInstance(prompts, list)
         self.assertTrue(prompts)
@@ -56,6 +57,14 @@ class VersionTests(unittest.TestCase):
             PROJECT_ROOT / "skills" / "virtual-companion" / "agents" / "openai.yaml"
         ).read_text(encoding="utf-8")
         self.assertIn("allow_implicit_invocation: false", agent_manifest)
+
+    def test_readme_gives_codex_an_unambiguous_plugin_install_prompt(self) -> None:
+        readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("把这段原样发给它", readme)
+        self.assertIn("不要调用 skill-installer", readme)
+        self.assertIn("install --host codex --apply", readme)
+        self.assertIn("不要删除 Companion Kit 的本地数据目录", readme)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Companion Kit
 
-> 给 Codex 加一个会聊天、会干活、也会发照片的虚拟陪伴对象。当前版本是 `0.7.0-dev.1`，Codex-first Developer Preview。
+> 给 Codex 加一个会聊天、会干活、也会发照片的虚拟陪伴对象。当前版本是 `0.7.0-dev.2`，Codex-first Developer Preview。
 
 很多“虚拟陪伴”有个尴尬时刻：平时聊得好好的，一说“拍张照片给我”，对面立刻变成工单机器人。
 
@@ -11,6 +11,27 @@
 Companion Kit 想把这件事做得自然一点。安装一次，在本地面板里认识并调整一个 Persona。以后打开 Codex 新任务，直接聊天、问问题或者要照片，不用先喊 Skill 名称，也不会拿“能力已启动”当开场白。毕竟这四个字不太像一句让人想继续聊下去的话。
 
 它也不是把 Codex 改造成只会陪聊的角色扮演工具。代码该修还是修，资料该查还是查，测试红了不能靠温柔语气把它哄绿。Persona 负责的是表达、相处方式和照片中的人物身份；具体任务仍由 Codex 原来的能力完成。
+
+## 想让 Codex 帮你安装？把这段原样发给它
+
+```text
+请帮我安装这个项目：
+https://github.com/BottleYo/companion-kit
+
+这是一个完整的 Codex Plugin，不是独立 Skill。不要调用 skill-installer，也不要把 skills/virtual-companion 单独复制到任何用户级 Skill 目录。
+
+请把仓库下载到普通项目目录，进入仓库根目录后运行：
+python3 skills/virtual-companion/scripts/companionctl.py install --host codex --apply
+
+如果安装器发现旧版 virtual-companion Skill，让它按默认方式备份并停用；不要删除 Companion Kit 的本地数据目录，那里可能保存着我的 Persona、关系状态和人物参考图。
+
+Plugin 安装完成后，运行：
+python3 skills/virtual-companion/scripts/companionctl.py ui
+
+打开本地面板让我完成初始化。最后提醒我检查并信任 Companion Kit 的两个 Hook，然后新开一个 Codex 任务开始使用。
+```
+
+如果刚才的安装对话已经说要用 `skill-installer`，别让它接着跑。新开一个任务，把上面整段发过去就行。
 
 ## 这版做到了什么
 
@@ -183,9 +204,13 @@ Persona 上下文被限制在 3000 个字符以内，并明确写着代码正确
 
 详细规则见[关系状态规范](docs/RELATIONSHIP_SPEC.md)。
 
-## Skill 还在，但不用拿它当门铃
+## Codex 不再安装独立 Skill
 
-Codex 的正常体验来自 Plugin 和安静的会话 Hook。`virtual-companion` Skill 只保留为显式诊断入口，用来检查配置、图片状态和兼容问题。
+Codex 的正常体验来自 Plugin 和安静的会话 Hook。Plugin 清单不再暴露 `virtual-companion` Skill；配置和图片状态可以通过本地面板或 `companionctl.py` 检查。
+
+源码里的 `skills/virtual-companion` 目录仍然存在，因为 OpenClaw、Hermes 和 Claude 的兼容安装还要用它，Codex 的运行脚本目前也放在这里。看到这个目录不代表要把它复制进 Codex 的 Skill 目录。
+
+如果安装器发现以前装过的独立 Skill，会先把它完整移到同一配置根目录下的 `legacy-skills` 备份区，再安装 Plugin。Plugin 安装失败时会自动放回；Persona、关系状态和人物参考图所在的本地数据目录不参与迁移。
 
 普通聊天不会自动宣布“Skill 已启动”“正在加载人格”或“后台生图已运行 51 秒”。Codex 界面自己的工作耗时和折叠工具轨迹仍可能显示，那是宿主界面；人物回复不会跟着念后台播报稿。
 

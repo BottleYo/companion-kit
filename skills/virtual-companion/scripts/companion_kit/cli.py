@@ -255,7 +255,10 @@ def _parser() -> argparse.ArgumentParser:
         help="photo run 返回的人格配置版本",
     )
 
-    install = subparsers.add_parser("install", help="安装通用 Skill；默认只预览")
+    install = subparsers.add_parser(
+        "install",
+        help="安装 Companion Kit；Codex 使用完整 Plugin，默认只预览",
+    )
     install.add_argument("--host", choices=sorted(_HOST_CLASSES), required=True)
     install.add_argument(
         "--target-root",
@@ -275,7 +278,7 @@ def _parser() -> argparse.ArgumentParser:
 def _skill_root() -> Path:
     candidate = Path(__file__).resolve().parents[2]
     if not (candidate / "SKILL.md").is_file():
-        raise InstallError("安装命令必须从完整 Skill 包中的 companionctl.py 运行")
+        raise InstallError("安装命令必须从完整 Companion Kit 仓库运行")
     return candidate
 
 

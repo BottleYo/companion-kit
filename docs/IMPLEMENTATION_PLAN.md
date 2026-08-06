@@ -87,7 +87,7 @@
 
 ## 阶段 4：Codex 自然体验闭环（当前 P0）
 
-当前进度：`0.7.0-dev.1` 已完成完整 Plugin 安装、显式诊断 Skill、安静的 `SessionStart` Persona 加载、一句话 Persona v3 草稿、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack 和跨任务取回的本地链路。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
+当前进度：`0.7.0-dev.2` 已完成完整 Plugin 安装、旧 Skill 可恢复迁移、安静的 `SessionStart` Persona 加载、一句话 Persona v3 草稿、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack 和跨任务取回的本地链路。Codex Plugin 不再暴露独立 Skill。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
 
 ### 4.1 一次性初始化
 
@@ -103,7 +103,7 @@
 - Codex 正常路径改为 Plugin + 本地轻量 Runtime，而不是以 Skill 作为每轮入口；
 - 使用 Codex 支持的生命周期上下文接入，在新任务开始时自动提供当前人格与关系投影；关系变化后的任务内刷新由后续本地工具返回；
 - 使用最小本地命令提供候选暂存、角色确认和参考包状态，真实生图继续由 Codex 内置工具完成；候选必须同时位于 Codex `generated_images` 且拥有当前任务图片工具的单次回执；主脸确认后才允许逐张补充侧脸或体型；
-- `$virtual-companion` 只作为可选的诊断和兼容入口，不再写入正常使用说明；
+- Codex 的配置诊断改走本地面板或 CLI；`$virtual-companion` 只保留给其他宿主兼容，不进入 Codex Plugin；
 - 人格只改变对用户的表达方式，不替代 Codex 的任务规划、代码能力、事实标准和安全规则。
 - Persona 上下文先保留任务质量、无 API Key、身份失败关闭和控制命令，再按剩余预算加入人物细节；总长限制为 3000 字符，避免长 Persona 截掉关键规则。
 

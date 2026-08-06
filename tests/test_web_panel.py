@@ -99,7 +99,7 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.7.0-dev.1")
+                self.assertEqual(payload["version"], "0.7.0-dev.2")
                 self.assertIn("codex_native", payload["photo_modes"])
                 self.assertIn("identity_reuse", payload["photo_modes"])
                 self.assertNotIn("openai_strict", payload["photo_modes"])

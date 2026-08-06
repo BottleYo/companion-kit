@@ -1,11 +1,11 @@
 ---
 name: virtual-companion
-description: Companion Kit 的显式诊断和兼容入口。仅当用户明确调用 $virtual-companion、要求检查 Companion Kit 配置或图片能力，或在 OpenClaw、Hermes、Claude 中显式使用兼容照片命令时启用。Codex 普通聊天由 Plugin Runtime 自动提供人格，不应隐式调用本 Skill。
+description: Companion Kit 面向 OpenClaw、Hermes 和 Claude 的兼容入口。不要把本目录作为独立 Skill 安装到 Codex；Codex 必须安装仓库根目录的完整 Plugin，并由 Plugin Runtime 自动提供人格。
 ---
 
 # 虚拟陪伴对象
 
-Codex 的日常聊天不经过本 Skill。它只用于显式配置诊断、Codex 内置图片状态检查，以及其他宿主的严格图片流程调试和现阶段兼容。不要因为普通闲聊或自然照片请求自动宣布或加载本 Skill。
+这不是 Codex 的安装入口。Codex 的日常聊天、配置诊断和图片状态都通过完整 Plugin、本地面板或 `companionctl.py` 提供；不要调用 `skill-installer` 把本目录单独装进 Codex。OpenClaw、Hermes 和 Claude 仍可按各自兼容方式使用本 Skill。
 
 把人格当作表达层，不要把它变成新的任务执行器。普通问题继续使用宿主原有工具和能力解决；人格约束不得覆盖安全策略、事实或用户当前指令。
 
