@@ -23,6 +23,166 @@ SKILL_ROOT = PROJECT_ROOT / "skills" / "virtual-companion"
 
 
 class CliTests(unittest.TestCase):
+    def test_backup_cli_creates_lists_verifies_and_recovers_without_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "companion-home"
+            recovery = root.parent / "recovery-copy"
+            with patch.dict(os.environ, {"COMPANION_HOME": str(root)}, clear=True):
+                initialize_profile(
+                    skill_root=SKILL_ROOT,
+                    template_id="warm_healer",
+                    display_name="小禾",
+                )
+                created_output = io.StringIO()
+                with redirect_stdout(created_output):
+                    created_code = main(["backup", "create"])
+                created = json.loads(created_output.getvalue())
+
+                listed_output = io.StringIO()
+                with redirect_stdout(listed_output):
+                    listed_code = main(["backup", "list"])
+                listed = json.loads(listed_output.getvalue())
+
+                verified_output = io.StringIO()
+                with redirect_stdout(verified_output):
+                    verified_code = main(
+                        ["backup", "verify", "--backup-id", created["backup_id"]]
+                    )
+                verified = json.loads(verified_output.getvalue())
+
+                recovered_output = io.StringIO()
+                with redirect_stdout(recovered_output):
+                    recovered_code = main(
+                        [
+                            "backup",
+                            "recover-copy",
+                            "--backup-id",
+                            created["backup_id"],
+                            "--destination",
+                            str(recovery),
+                        ]
+                    )
+                recovered = json.loads(recovered_output.getvalue())
+
+            self.assertEqual(created_code, 0)
+            self.assertTrue(created["verified"])
+            self.assertEqual(listed_code, 0)
+            self.assertEqual(listed["backups"][0]["backup_id"], created["backup_id"])
+            self.assertEqual(verified_code, 0)
+            self.assertTrue(verified["valid"])
+            self.assertEqual(recovered_code, 0)
+            self.assertTrue(recovered["created"])
+            self.assertTrue((recovery / "profiles" / "default.toml").is_file())
+
+    def test_upgrade_cli_exposes_read_only_check_and_plan(self) -> None:
+        class FakeCheck:
+            def to_dict(self) -> dict[str, object]:
+                return {"ready": True, "mode": "check"}
+
+        class FakePlan:
+            def to_dict(self) -> dict[str, object]:
+                return {
+                    "ready": True,
+                    "mode": "plan",
+                    "apply_available": False,
+                }
+
+        class FakePlanner:
+            def __init__(self, **_: object) -> None:
+                pass
+
+            def check(self) -> FakeCheck:
+                return FakeCheck()
+
+            def plan(self) -> FakePlan:
+                return FakePlan()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "companion-home"
+            with (
+                patch.dict(os.environ, {"COMPANION_HOME": str(root)}, clear=True),
+                patch("companion_kit.cli.CodexUpgradePlanner", FakePlanner),
+            ):
+                check_output = io.StringIO()
+                with redirect_stdout(check_output):
+                    check_code = main(["upgrade", "check"])
+                plan_output = io.StringIO()
+                with redirect_stdout(plan_output):
+                    plan_code = main(["upgrade", "plan"])
+
+            self.assertEqual(check_code, 0)
+            self.assertEqual(json.loads(check_output.getvalue())["mode"], "check")
+            self.assertEqual(plan_code, 0)
+            self.assertFalse(json.loads(plan_output.getvalue())["apply_available"])
+
+    def test_upgrade_cli_forwards_explicit_apply_and_rollback_confirmation(self) -> None:
+        calls: list[tuple[str, object]] = []
+
+        class FakePlanner:
+            def __init__(self, **_: object) -> None:
+                pass
+
+        class FakeResult:
+            def __init__(self, mode: str) -> None:
+                self.mode = mode
+
+            def to_dict(self) -> dict[str, object]:
+                return {"mode": self.mode, "durable_data_replaced": False}
+
+        class FakeExecutor:
+            def __init__(self, **_: object) -> None:
+                pass
+
+            def apply(self, *, confirm: bool) -> FakeResult:
+                calls.append(("apply", confirm))
+                return FakeResult("apply")
+
+            def rollback(
+                self,
+                *,
+                snapshot_id: str,
+                confirm: bool,
+            ) -> FakeResult:
+                calls.append(("rollback", (snapshot_id, confirm)))
+                return FakeResult("rollback")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "companion-home"
+            with (
+                patch.dict(os.environ, {"COMPANION_HOME": str(root)}, clear=True),
+                patch("companion_kit.cli.CodexUpgradePlanner", FakePlanner),
+                patch("companion_kit.cli.CodexUpgradeExecutor", FakeExecutor),
+            ):
+                apply_output = io.StringIO()
+                with redirect_stdout(apply_output):
+                    apply_code = main(["upgrade", "apply", "--confirm"])
+                rollback_output = io.StringIO()
+                with redirect_stdout(rollback_output):
+                    rollback_code = main(
+                        [
+                            "upgrade",
+                            "rollback",
+                            "--snapshot-id",
+                            "20260806T080000Z-deadbeef",
+                            "--confirm",
+                        ]
+                    )
+
+            self.assertEqual(apply_code, 0)
+            self.assertEqual(json.loads(apply_output.getvalue())["mode"], "apply")
+            self.assertEqual(rollback_code, 0)
+            self.assertEqual(
+                json.loads(rollback_output.getvalue())["mode"],
+                "rollback",
+            )
+            self.assertEqual(
+                calls,
+                [
+                    ("apply", True),
+                    ("rollback", ("20260806T080000Z-deadbeef", True)),
+                ],
+            )
+
     def test_codex_native_identity_can_be_staged_and_confirmed_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()

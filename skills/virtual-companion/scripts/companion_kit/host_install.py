@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+import json
 import os
 from pathlib import Path
 import shutil
@@ -8,7 +10,13 @@ import subprocess
 from typing import Callable, Mapping, Sequence
 
 from .installer import InstallError, install_skill
+from .backup import CompanionDataLayout
 from .public_bundle import inspect_public_tree, inspect_release_layout
+from .upgrade import (
+    CodexInstallationReceipt,
+    InstallationReceiptStore,
+    UpgradeError,
+)
 
 
 _HOST_NAMES = {
@@ -78,10 +86,13 @@ class HostInstallPlan:
 class HostInstallResult:
     plan: HostInstallPlan
     applied: bool
+    upgrade_registered: bool | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload = self.plan.to_dict()
         payload["applied"] = self.applied
+        if self.upgrade_registered is not None:
+            payload["upgrade_registered"] = self.upgrade_registered
         return payload
 
 
@@ -130,6 +141,22 @@ class HostInstaller:
             candidate = Path(configured).expanduser() if configured else self.home / ".claude"
             return candidate.resolve()
         raise InstallError(f"{_HOST_NAMES[host]} 必须使用原生安装命令")
+
+    def _codex_data_layout(self) -> CompanionDataLayout:
+        configured = self.environment.get("COMPANION_HOME", "").strip()
+        root = Path(configured).expanduser() if configured else self.home / ".companion-kit"
+        return CompanionDataLayout.for_codex(data_root=root)
+
+    def _plugin_version(self) -> str:
+        manifest = self.plugin_root / ".codex-plugin" / "plugin.json"
+        try:
+            raw = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InstallError("Codex Plugin 清单无法读取") from exc
+        version = str(raw.get("version", "")).strip() if isinstance(raw, dict) else ""
+        if not version:
+            raise InstallError("Codex Plugin 清单缺少 version")
+        return version
 
     def plan(self, host: str) -> HostInstallPlan:
         normalized = str(host or "").strip().lower()
@@ -283,7 +310,25 @@ class HostInstaller:
                 available=True,
                 bootstrap_argv=plan.bootstrap_argv,
             )
-            return HostInstallResult(plan=applied_plan, applied=True)
+            try:
+                InstallationReceiptStore(self._codex_data_layout()).save(
+                    CodexInstallationReceipt(
+                        plugin_version=self._plugin_version(),
+                        marketplace_name=_CODEX_MARKETPLACE_NAME,
+                        marketplace_source_type="local",
+                        plugin_enabled=True,
+                        recorded_at=datetime.now(UTC).isoformat(),
+                    )
+                )
+                upgrade_registered = True
+            except UpgradeError:
+                # Plugin 已安装成功时不伪装成整体安装失败；升级检查会明确提示补登记。
+                upgrade_registered = False
+            return HostInstallResult(
+                plan=applied_plan,
+                applied=True,
+                upgrade_registered=upgrade_registered,
+            )
 
         result = install_skill(
             host=plan.host,

@@ -91,9 +91,142 @@ class WebPanelTests(unittest.TestCase):
                 self.assertEqual(favicon.status, 204)
                 self.assertIn(b"Companion Kit", payload)
                 self.assertIn(b'id="identityFile"', payload)
+                self.assertIn(b'id="createBackup"', payload)
+                self.assertIn(b'id="applyUpgrade"', payload)
                 self.assertIn("设为固定主脸".encode("utf-8"), payload)
                 self.assertIn("default-src 'self'", response.getheader("Content-Security-Policy"))
                 self.assertEqual(response.getheader("Cache-Control"), "no-store")
+
+    def test_panel_creates_verified_restore_point_only_after_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, profile_path):
+                origin = f"http://127.0.0.1:{server.server_port}"
+                server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                before = profile_path.read_bytes()
+                refused, _ = request(
+                    server,
+                    "POST",
+                    "/api/backups",
+                    token="test-panel-token",
+                    origin=origin,
+                    body={"confirm": False},
+                )
+                created, created_body = request(
+                    server,
+                    "POST",
+                    "/api/backups",
+                    token="test-panel-token",
+                    origin=origin,
+                    body={"confirm": True},
+                )
+                listed, listed_body = request(
+                    server,
+                    "GET",
+                    "/api/backups",
+                    token="test-panel-token",
+                )
+
+            created_payload = json.loads(created_body)
+            listed_payload = json.loads(listed_body)
+            self.assertEqual(refused.status, 409)
+            self.assertEqual(created.status, 201)
+            self.assertTrue(created_payload["backup"]["verified"])
+            self.assertEqual(listed.status, 200)
+            self.assertEqual(
+                listed_payload["backups"][0]["backup_id"],
+                created_payload["backup"]["backup_id"],
+            )
+            self.assertEqual(profile_path.read_bytes(), before)
+
+    def test_upgrade_check_endpoint_is_explicit_and_hides_private_source(self) -> None:
+        class FakeCheck:
+            def to_dict(self) -> dict[str, object]:
+                return {
+                    "ready": True,
+                    "release_version": "0.7.0-dev.5",
+                    "marketplace_source_type": "local",
+                    "update_candidate": True,
+                }
+
+        class FakePlanner:
+            def check(self) -> FakeCheck:
+                return FakeCheck()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                server.upgrade_planner = FakePlanner()
+                unauthorized, _ = request(server, "GET", "/api/upgrade/check")
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/upgrade/check",
+                    token="test-panel-token",
+                )
+
+            payload = json.loads(body)
+            self.assertEqual(unauthorized.status, 401)
+            self.assertEqual(response.status, 200)
+            self.assertTrue(payload["upgrade"]["update_candidate"])
+            self.assertNotIn(str(root), json.dumps(payload))
+
+    def test_upgrade_apply_requires_confirmation_and_returns_no_private_path(self) -> None:
+        class FakeResult:
+            def to_dict(self) -> dict[str, object]:
+                return {
+                    "from_version": "0.7.0-dev.4",
+                    "to_version": "0.7.0-dev.5",
+                    "backup_id": "20260806T080000Z-deadbeef",
+                    "applied": True,
+                    "durable_data_replaced": False,
+                }
+
+        class FakeExecutor:
+            def apply(self, *, confirm: bool) -> FakeResult:
+                if confirm is not True:
+                    raise AssertionError("confirmation was not forwarded")
+                return FakeResult()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, profile_path):
+                server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                before = profile_path.read_bytes()
+                server.upgrade_executor = FakeExecutor()
+                origin = f"http://127.0.0.1:{server.server_port}"
+                refused, _ = request(
+                    server,
+                    "POST",
+                    "/api/upgrade/apply",
+                    token="test-panel-token",
+                    origin=origin,
+                    body={"confirm": False},
+                )
+                response, body = request(
+                    server,
+                    "POST",
+                    "/api/upgrade/apply",
+                    token="test-panel-token",
+                    origin=origin,
+                    body={"confirm": True},
+                )
+
+            payload = json.loads(body)
+            self.assertEqual(refused.status, 409)
+            self.assertEqual(response.status, 200)
+            self.assertTrue(payload["upgrade"]["applied"])
+            self.assertFalse(payload["upgrade"]["durable_data_replaced"])
+            self.assertEqual(profile_path.read_bytes(), before)
+            self.assertNotIn(str(root), json.dumps(payload))
 
     def test_identity_upload_requires_saved_persona_and_explicit_consent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -297,7 +430,7 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.7.0-dev.4")
+                self.assertEqual(payload["version"], "0.7.0-dev.5")
                 self.assertIn("codex_native", payload["photo_modes"])
                 self.assertIn("identity_reuse", payload["photo_modes"])
                 self.assertNotIn("openai_strict", payload["photo_modes"])

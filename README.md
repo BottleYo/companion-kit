@@ -1,6 +1,6 @@
 # Companion Kit
 
-> 给 Codex 加一个会聊天、会干活、也会发照片的虚拟陪伴对象。当前版本是 `0.7.0-dev.4`，Codex-first Developer Preview。
+> 给 Codex 加一个会聊天、会干活、也会发照片的虚拟陪伴对象。当前版本是 `0.7.0-dev.5`，Codex-first Developer Preview。
 
 很多“虚拟陪伴”有个尴尬时刻：平时聊得好好的，一说“拍张照片给我”，对面立刻变成工单机器人。
 
@@ -43,6 +43,7 @@ python3 skills/virtual-companion/scripts/companionctl.py ui
 - 后续任务会取回同一个私有身份包，按画面使用主脸和可选补充；已登记的参考缺失时停止，不偷偷用文字重新捏一张脸。
 - 关系底层是多维状态，不是一根从陌生人一路涨到恋人的经验条。
 - Codex 的 coding、分析和工具能力有独立优先级，不会被人格语气盖过去。
+- 已安装用户可以先备份并校验 Persona、关系和人物参考，再切换本地 Codex Plugin；新程序检查失败时恢复旧程序。
 
 固定人物的本地链路已经有自动测试覆盖，包括当前任务图片回执、候选暂存、确认、跨任务取回和缺图失败关闭。不过，真实 Codex 在不同机器上的图片工具名称、回执格式和参考图参数还需要继续验收。所以现在适合开发者试用，不适合宣传成“永远不会换脸”的稳定产品。
 
@@ -219,6 +220,30 @@ Codex 的正常体验来自 Plugin 和安静的会话 Hook。Plugin 清单不再
 
 每个宿主默认有自己的 Persona、关系和图片目录。当前 `0.7` 只优先完善 Codex；OpenClaw、Hermes 和 Claude 保留原有适配，不在这一轮跟着迁移或升级。以后继续做多宿主，也会守住“一宿主一份 Persona”这个边界。
 
+## 已经装过的人怎么升级
+
+别先删旧版。Persona、关系记录和固定人物参考不是“删了再装也一样”的程序文件。
+
+在原来的项目目录里更新代码，再打开面板：
+
+```bash
+git pull --ff-only
+python3 skills/virtual-companion/scripts/companionctl.py ui
+```
+
+面板里的“备份和更新”会先检查，不会一打开就自作主张。发现新版本后，你再点“确认更新”。它会依次保存并校验用户恢复点、在副本上试读旧数据、另存旧 Plugin，然后才让 Codex 切换程序。新版本即时检查不过，会恢复旧程序；不会拿旧备份覆盖正在使用的 Persona。
+
+程序换完以后新开一个 Codex 任务。已经打开的任务继续用启动时加载的版本，不适合中途换脑子。
+
+命令行也可以完成同一件事：
+
+```bash
+python3 skills/virtual-companion/scripts/companionctl.py upgrade check
+python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
+```
+
+目前只支持项目安装器创建的本地 Codex Marketplace。原项目目录被移动、来源对不上，或者检测到降级时都会停下。恢复点包含 Persona、关系库和 Identity Pack，不包含短期成图、聊天正文、凭据或其他宿主数据。完整流程和手动回滚见[安全升级说明](docs/UPGRADE.md)。
+
 ## 隐私：项目不会翻你的抽屉
 
 公开仓库只放代码、通用模板和文档。这里不应该出现任何人的私人 Persona、SOUL、USER、长期记忆、聊天记录、人物照片、联系人、账号或凭据，也不会夹带项目开发者自己的角色设定和素材。
@@ -241,7 +266,7 @@ Codex 的正常体验来自 Plugin 和安静的会话 Hook。Plugin 清单不再
 
 - 需要在更多真实 Codex 环境验收图片工具名、回执字段和参考图参数；
 - 关系状态还没有从真实聊天自动更新；
-- 没有自动升级和自动卸载流程；
+- 本地 Codex 已有确认式安全升级，GitHub 代码仍需用户先更新；自动卸载还没有开放；
 - 不能承诺生成模型永远零漂移，多角度参考也不是数学保证；
 - OpenClaw、Hermes 和 Claude 不包含这一轮 Codex-first 新能力。
 

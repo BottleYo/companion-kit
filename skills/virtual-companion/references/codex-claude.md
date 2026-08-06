@@ -14,7 +14,16 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
 
 安装器会注册仓库内的 `companion-kit-preview` marketplace，再安装完整 Plugin。Plugin 包含安静的会话 Hook，不向 Codex 暴露独立 Skill，也不检查或改动用户级 Skill 目录。
 
-`0.7.0-dev.4` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。
+已经安装过时，在原项目目录更新代码后可以先检查再确认升级：
+
+```bash
+python3 skills/virtual-companion/scripts/companionctl.py upgrade check
+python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
+```
+
+升级器先保存并校验 Codex Persona、关系数据库和 Identity Pack，再另存旧 Plugin。切换后的即时健康检查失败时只恢复旧程序，不用恢复点覆盖当前用户数据。该流程只适用于本地 Codex Marketplace；Claude 和其他宿主不会跟着更新。
+
+`0.7.0-dev.5` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。
 
 - 不读取、不检查也不索要 `OPENAI_API_KEY`。
 - 不让用户选择 Provider、快速模式、严格模式或 API 计费方式。
