@@ -150,6 +150,53 @@
         <p id="saveHint" class="hint">配置只保存在这台电脑的 Codex 私有目录。</p>
       </section>
 
+      <section id="identitySection" class="panel" aria-labelledby="identityTitle">
+        <div class="section-heading">
+          <div>
+            <p class="step">第 3 步 · 决定长相（可稍后）</p>
+            <h2 id="identityTitle">有参考图，就在这里认识 TA</h2>
+          </div>
+          <span id="identityPanelStatus" class="status-chip status-chip--soft">等待 Persona</span>
+        </div>
+        <p class="section-intro">一张清楚的正面或微侧脸就能开始。这里固定的是脸部辨识特征，不是发型、表情、妆容、衣服或场景。</p>
+
+        <div class="identity-setup">
+          <div class="identity-controls">
+            <label id="identityDropzone" class="identity-dropzone" for="identityFile" tabindex="0">
+              <input id="identityFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+              <span class="identity-dropzone__icon" aria-hidden="true">＋</span>
+              <strong>选择或拖入一张人物参考图</strong>
+              <small>支持 PNG、JPG、WebP；会在浏览器里转成干净 PNG，再存进本地私有候选槽。</small>
+            </label>
+
+            <label id="identityConsentRow" class="toggle-row identity-consent">
+              <input id="identityConsent" type="checkbox">
+              <span>
+                我确认这是成年虚构形象，或我有权使用的成年人物参考
+                <small>请不要上传未成年人、冒用身份或未经授权的私人照片。</small>
+              </span>
+            </label>
+
+            <div class="identity-actions">
+              <button id="stageIdentity" class="button button--secondary" type="button" disabled>先选择一张图</button>
+              <button id="confirmIdentity" class="button button--primary" type="button" hidden>设为固定主脸</button>
+              <button id="resetIdentity" class="button button--quiet" type="button" hidden>换一张</button>
+            </div>
+            <p id="identityRequirement" class="hint">请先保存上面的 Persona。人物照片是可选项，不设置也能先聊天和解决问题。</p>
+          </div>
+
+          <div class="identity-preview" aria-live="polite">
+            <img id="identityPreview" alt="人物主脸候选预览" hidden>
+            <div id="identityPreviewPlaceholder" class="identity-preview__placeholder">
+              <span aria-hidden="true">◌</span>
+              <strong id="identityPlaceholderTitle">还没有人物参考</strong>
+              <small id="identityPlaceholderCopy">可以现在上传，也可以以后在 Codex 聊天时让 TA 根据描述生成候选。</small>
+            </div>
+            <p id="identityCandidateStatus">上传后仍只是候选，只有你明确确认才会固定。</p>
+          </div>
+        </div>
+      </section>
+
       <section class="panel codex-card" aria-labelledby="photoTitle">
         <div>
           <p class="step">Codex 里的照片</p>
@@ -169,7 +216,7 @@
       <section class="panel" aria-labelledby="installTitle">
         <div class="section-heading">
           <div>
-            <p class="step">第 3 步 · 开始使用</p>
+            <p class="step">第 4 步 · 开始使用</p>
             <h2 id="installTitle">先安装到 Codex</h2>
           </div>
           <span class="status-chip status-chip--soft">安装前会再次确认</span>

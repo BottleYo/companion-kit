@@ -26,6 +26,10 @@ from .identity_pack import (
     PRIMARY_FACE,
 )
 from .host_install import HostInstallResult, HostInstaller
+from .identity_workflow import (
+    IdentityConfirmationRetry,
+    confirm_identity_candidate,
+)
 from .image_assets import ImageAssetError, ImageAssetStore
 from .installer import InstallError, install_skill
 from .kernel import CompanionKernel
@@ -41,12 +45,6 @@ _HOST_CLASSES = {
     "codex": HostClass.DESKTOP,
     "claude": HostClass.DESKTOP,
 }
-
-
-class _IdentityConfirmationRetry(ProfileStoreError):
-    def __init__(self, message: str, *, retry_profile_version: str) -> None:
-        super().__init__(message)
-        self.retry_profile_version = retry_profile_version
 
 
 def _local_port(value: str) -> int:
@@ -737,66 +735,16 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if snapshot.version != args.profile_version:
-                raise _IdentityConfirmationRetry(
+                raise IdentityConfirmationRetry(
                     "Codex Persona 已变化，请使用当前版本重新确认候选原型",
                     retry_profile_version=snapshot.version,
                 )
-            assets = _image_assets()
-            reference = assets.confirm_candidate(
+            reference, bound = confirm_identity_candidate(
+                assets=_image_assets(),
+                profile_store=profile_store,
                 candidate_id=args.candidate_id,
-                profile_id=snapshot.profile.id,
-                identity_version=snapshot.profile.visual.identity_version,
                 task_scope=args.task_scope,
-                retain_candidate=True,
-            )
-            if reference.role == PRIMARY_FACE:
-                try:
-                    bound = profile_store.bind_reference(
-                        reference_id=reference.reference_id,
-                        identity_version=snapshot.profile.visual.identity_version,
-                        expected_version=snapshot.version,
-                    )
-                except ProfileStoreError as bind_error:
-                    latest = None
-                    latest_read_succeeded = False
-                    try:
-                        latest = profile_store.read()
-                        latest_read_succeeded = True
-                    except ProfileStoreError:
-                        pass
-                    if (
-                        latest is not None
-                        and latest.profile.visual.identity_version
-                        == snapshot.profile.visual.identity_version
-                        and latest.profile.visual.reference_ids
-                        == (reference.reference_id,)
-                    ):
-                        bound = latest
-                    elif latest_read_succeeded:
-                        assets.rollback_primary_confirmation(
-                            candidate_id=args.candidate_id,
-                            reference_id=reference.reference_id,
-                            profile_id=snapshot.profile.id,
-                            identity_version=snapshot.profile.visual.identity_version,
-                            task_scope=args.task_scope,
-                        )
-                        if latest is not None:
-                            raise _IdentityConfirmationRetry(
-                                str(bind_error),
-                                retry_profile_version=latest.version,
-                            ) from bind_error
-                        raise
-                    else:
-                        raise
-            else:
-                if not snapshot.profile.visual.is_locked:
-                    raise PhotoWorkflowError("增强参考不能在主脸确认前启用")
-                bound = snapshot
-            assets.discard_candidate(
-                candidate_id=args.candidate_id,
-                profile_id=snapshot.profile.id,
-                identity_version=snapshot.profile.visual.identity_version,
-                task_scope=args.task_scope,
+                expected_profile_version=args.profile_version,
             )
             print(
                 json.dumps(
@@ -846,7 +794,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = host_result.to_dict()
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
-    except _IdentityConfirmationRetry as exc:
+    except IdentityConfirmationRetry as exc:
         print(
             json.dumps(
                 {

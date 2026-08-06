@@ -35,6 +35,7 @@ _PROFILE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 _OPAQUE_ID_RE = re.compile(r"^(?:cand|ref|art)_[a-f0-9]{16,32}$")
 _MAX_IMAGE_BYTES = 25 * 1024 * 1024
 _MAX_PIXELS = 16_000_000
+_IMAGE_SOURCES = {"openai_image_api", "codex_native", "user_upload"}
 _SELECTED_KEYS = {
     "schema_version",
     "reference_id",
@@ -474,7 +475,7 @@ def _validated_pack_payload(raw: object) -> dict[str, object]:
             or isinstance(height, bool)
             or height < 1
             or width * height > _MAX_PIXELS
-            or member.get("source") not in {"openai_image_api", "codex_native"}
+            or member.get("source") not in _IMAGE_SOURCES
             or not isinstance(member.get("created_at"), str)
             or not str(member.get("created_at") or "").strip()
         ):
@@ -716,7 +717,7 @@ class ImageAssetStore:
         role: str = PRIMARY_FACE,
         primary_reference_id: str | None = None,
     ) -> CandidateAsset:
-        if source not in {"openai_image_api", "codex_native"}:
+        if source not in _IMAGE_SOURCES:
             raise ImageAssetError("候选原型来源无效")
         try:
             normalized_role = normalize_identity_role(role)

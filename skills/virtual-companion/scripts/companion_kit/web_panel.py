@@ -10,6 +10,11 @@ from urllib.parse import urlsplit
 import webbrowser
 
 from .host_install import HostInstaller
+from .identity_pack import PRIMARY_FACE
+from .identity_workflow import (
+    IdentityConfirmationRetry,
+    confirm_identity_candidate,
+)
 from .image_assets import ImageAssetError, ImageAssetStore
 from .initializer import default_profile_path
 from .installer import InstallError
@@ -34,7 +39,9 @@ _PROFILE_KEYS = {
 }
 _DRAFT_KEYS = {"template_id", "description", "display_name", "overrides"}
 _INSTALL_KEYS = {"host", "confirm"}
+_IDENTITY_CONFIRM_KEYS = {"candidate_id", "profile_version", "confirm"}
 _MAX_BODY_BYTES = 24 * 1024
+_MAX_IMAGE_BODY_BYTES = 12 * 1024 * 1024
 
 
 def _safe_error(exc: Exception, fallback: str) -> str:
@@ -42,6 +49,12 @@ def _safe_error(exc: Exception, fallback: str) -> str:
     if not message or contains_absolute_path(message):
         return fallback
     return message
+
+
+def _private_root_for_profile(profile_path: Path) -> Path:
+    parent = profile_path.parent
+    owner_root = parent.parent if parent.name == "profiles" else parent
+    return owner_root / "private"
 
 
 class CompanionPanelServer(ThreadingHTTPServer):
@@ -147,6 +160,31 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             return None
         return payload
 
+    def _read_png(self) -> bytes | None:
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0]
+        if content_type != "image/png":
+            self.close_connection = True
+            self._send_json(415, {"error": "参考图需要转换为 PNG 后上传"})
+            return None
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.close_connection = True
+            self._send_json(400, {"error": "图片长度无效"})
+            return None
+        if length <= 0 or length > _MAX_IMAGE_BODY_BYTES:
+            self.close_connection = True
+            self._send_json(413, {"error": "参考图过大或为空"})
+            return None
+        return self.rfile.read(length)
+
+    def _identity_assets(self) -> ImageAssetStore:
+        image_root = _private_root_for_profile(self.server.store.profile_path) / "images"
+        return ImageAssetStore(image_root)
+
+    def _identity_scope(self) -> str:
+        return f"web-panel:{self.server.panel_nonce}"
+
     def _state_payload(self) -> dict[str, object]:
         snapshot = None
         try:
@@ -179,7 +217,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                 "count": 0,
             }
         else:
-            image_root = self.server.store.profile_path.parents[1] / "private" / "images"
+            image_root = _private_root_for_profile(self.server.store.profile_path) / "images"
             if not image_root.is_dir() or snapshot is None:
                 identity_pack = {
                     "level": "unavailable",
@@ -227,7 +265,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         }
 
         return {
-            "version": "0.7.0-dev.3",
+            "version": "0.7.0-dev.4",
             "phase": "本轮只优化 Codex Persona 创建、聊天与内置生图体验；其他宿主配置保持独立。",
             "templates": [
                 template.to_dict() for template in self.server.store.templates()
@@ -254,6 +292,13 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                     500,
                     {"error": _safe_error(exc, "面板无法读取内置模板")},
                 )
+            return
+
+        if path == "/api/identity/primary":
+            if not self._authenticated():
+                self._send_json(401, {"error": "面板授权已失效，请重新启动"})
+                return
+            self._send_primary_identity()
             return
 
         if path == "/favicon.ico":
@@ -285,6 +330,9 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             return
 
         path = urlsplit(self.path).path
+        if path == "/api/identity/candidate":
+            self._stage_identity_candidate()
+            return
         payload = self._read_json()
         if payload is None:
             return
@@ -297,7 +345,141 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         if path == "/api/install":
             self._install_host(payload)
             return
+        if path == "/api/identity/confirm":
+            self._confirm_identity(payload)
+            return
         self._send_json(404, {"error": "接口不存在"})
+
+    def _stage_identity_candidate(self) -> None:
+        try:
+            snapshot = self.server.store.read()
+        except ProfileStoreError as exc:
+            self._send_json(
+                400,
+                {"error": _safe_error(exc, "本地 Persona 无法安全读取")},
+            )
+            return
+        if snapshot is None:
+            self.close_connection = True
+            self._send_json(409, {"error": "请先保存 Persona，再上传人物参考图"})
+            return
+        if snapshot.profile.visual.is_locked:
+            self.close_connection = True
+            self._send_json(
+                409,
+                {"error": "人物主脸已经固定；更换形象需要单独的身份轮换流程"},
+            )
+            return
+        if self.headers.get("X-Companion-Image-Consent", "") != "adult-authorized":
+            self.close_connection = True
+            self._send_json(
+                409,
+                {"error": "请先确认图片是成年虚构形象，或你有权使用的成年人物参考"},
+            )
+            return
+        image_bytes = self._read_png()
+        if image_bytes is None:
+            return
+        try:
+            candidate = self._identity_assets().store_candidate(
+                profile_id=snapshot.profile.id,
+                identity_version=snapshot.profile.visual.identity_version,
+                image_bytes=image_bytes,
+                task_scope=self._identity_scope(),
+                source="user_upload",
+                role=PRIMARY_FACE,
+            )
+        except (ImageAssetError, OSError) as exc:
+            self._send_json(
+                400,
+                {"error": _safe_error(exc, "参考图无法安全保存")},
+            )
+            return
+        self._send_json(
+            201,
+            {
+                "candidate": {
+                    "candidate_id": candidate.candidate_id,
+                    "profile_version": snapshot.version,
+                    "width": candidate.width,
+                    "height": candidate.height,
+                    "status": "pending",
+                }
+            },
+        )
+
+    def _confirm_identity(self, payload: dict[str, object]) -> None:
+        if set(payload) - _IDENTITY_CONFIRM_KEYS:
+            self._send_json(400, {"error": "形象确认请求包含不允许的字段"})
+            return
+        candidate_id = payload.get("candidate_id")
+        profile_version = payload.get("profile_version")
+        if not isinstance(candidate_id, str) or not candidate_id:
+            self._send_json(400, {"error": "候选形象编号无效"})
+            return
+        if not isinstance(profile_version, str) or not profile_version:
+            self._send_json(400, {"error": "Persona 版本无效"})
+            return
+        if payload.get("confirm") is not True:
+            self._send_json(409, {"error": "只有明确确认后才会固定人物主脸"})
+            return
+        try:
+            reference, bound = confirm_identity_candidate(
+                assets=self._identity_assets(),
+                profile_store=self.server.store,
+                candidate_id=candidate_id,
+                task_scope=self._identity_scope(),
+                expected_profile_version=profile_version,
+            )
+        except IdentityConfirmationRetry as exc:
+            self._send_json(
+                409,
+                {
+                    "error": _safe_error(exc, "Persona 已变化，请重新确认候选"),
+                    "retry_profile_version": exc.retry_profile_version,
+                },
+            )
+            return
+        except (ImageAssetError, ProfileStoreError, OSError) as exc:
+            self._send_json(
+                409,
+                {"error": _safe_error(exc, "人物主脸无法安全确认")},
+            )
+            return
+        self._send_json(
+            200,
+            {
+                "profile": bound.to_dict(),
+                "identity": {
+                    "status": "locked",
+                    "role": reference.role,
+                    "level": "basic",
+                },
+            },
+        )
+
+    def _send_primary_identity(self) -> None:
+        try:
+            snapshot = self.server.store.read()
+            if snapshot is None or not snapshot.profile.visual.is_locked:
+                self._send_json(404, {"error": "人物主脸尚未确认"})
+                return
+            pack = self._identity_assets().resolve_identity_pack(
+                primary_reference_id=snapshot.profile.visual.reference_ids[0],
+                profile_id=snapshot.profile.id,
+                identity_version=snapshot.profile.visual.identity_version,
+            )
+            primary = pack.member(PRIMARY_FACE)
+            if primary is None:
+                raise ImageAssetError("身份参考包缺少主脸")
+            payload = primary.path.read_bytes()
+        except (ImageAssetError, ProfileStoreError, OSError) as exc:
+            self._send_json(
+                404,
+                {"error": _safe_error(exc, "人物主脸暂时不可用")},
+            )
+            return
+        self._send_bytes(200, payload, "image/png")
 
     def _save_profile(self, payload: dict[str, object]) -> None:
         if set(payload) - _PROFILE_KEYS:

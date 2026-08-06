@@ -19,8 +19,8 @@ SKILL_ROOT = PROJECT_ROOT / "skills" / "virtual-companion"
 
 
 @contextmanager
-def running_panel(root: Path):
-    profile_path = root / "profiles" / "default.toml"
+def running_panel(root: Path, *, profile_path: Path | None = None):
+    profile_path = profile_path or root / "profiles" / "default.toml"
     install_roots = {
         "openclaw": root / "openclaw",
         "hermes": root / "hermes",
@@ -49,10 +49,15 @@ def request(
     path: str,
     *,
     body: dict[str, object] | None = None,
+    raw: bytes | None = None,
+    content_type: str | None = None,
+    extra_headers: dict[str, str] | None = None,
     token: str | None = None,
     origin: str | None = None,
     host: str | None = None,
 ):
+    if body is not None and raw is not None:
+        raise ValueError("body 与 raw 不能同时提供")
     connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
     headers = {"Host": host or f"127.0.0.1:{server.server_port}"}
     encoded = None
@@ -63,6 +68,11 @@ def request(
     if body is not None:
         encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
+    elif raw is not None:
+        encoded = raw
+        headers["Content-Type"] = content_type or "application/octet-stream"
+    if extra_headers:
+        headers.update(extra_headers)
     connection.request(method, path, body=encoded, headers=headers)
     response = connection.getresponse()
     payload = response.read()
@@ -80,8 +90,196 @@ class WebPanelTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertEqual(favicon.status, 204)
                 self.assertIn(b"Companion Kit", payload)
+                self.assertIn(b'id="identityFile"', payload)
+                self.assertIn("设为固定主脸".encode("utf-8"), payload)
                 self.assertIn("default-src 'self'", response.getheader("Content-Security-Policy"))
                 self.assertEqual(response.getheader("Cache-Control"), "no-store")
+
+    def test_identity_upload_requires_saved_persona_and_explicit_consent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                origin = f"http://127.0.0.1:{server.server_port}"
+                no_profile, _ = request(
+                    server,
+                    "POST",
+                    "/api/identity/candidate",
+                    token="test-panel-token",
+                    origin=origin,
+                    raw=tiny_png(),
+                    content_type="image/png",
+                    extra_headers={"X-Companion-Image-Consent": "adult-authorized"},
+                )
+                server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                no_consent, _ = request(
+                    server,
+                    "POST",
+                    "/api/identity/candidate",
+                    token="test-panel-token",
+                    origin=origin,
+                    raw=tiny_png(),
+                    content_type="image/png",
+                )
+                wrong_type, _ = request(
+                    server,
+                    "POST",
+                    "/api/identity/candidate",
+                    token="test-panel-token",
+                    origin=origin,
+                    raw=tiny_png(),
+                    content_type="image/jpeg",
+                    extra_headers={"X-Companion-Image-Consent": "adult-authorized"},
+                )
+
+            self.assertEqual(no_profile.status, 409)
+            self.assertEqual(no_consent.status, 409)
+            self.assertEqual(wrong_type.status, 415)
+            self.assertFalse((root / "private" / "images").exists())
+
+    def test_identity_upload_preview_and_confirmation_lock_primary_face(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                origin = f"http://127.0.0.1:{server.server_port}"
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                staged, staged_body = request(
+                    server,
+                    "POST",
+                    "/api/identity/candidate",
+                    token="test-panel-token",
+                    origin=origin,
+                    raw=tiny_png(metadata=b"private-metadata"),
+                    content_type="image/png",
+                    extra_headers={"X-Companion-Image-Consent": "adult-authorized"},
+                )
+                staged_payload = json.loads(staged_body)
+                pending = next((root / "private" / "images").rglob("pending.png"))
+                pending_bytes = pending.read_bytes()
+
+                confirmed, confirmed_body = request(
+                    server,
+                    "POST",
+                    "/api/identity/confirm",
+                    token="test-panel-token",
+                    origin=origin,
+                    body={
+                        "candidate_id": staged_payload["candidate"]["candidate_id"],
+                        "profile_version": snapshot.version,
+                        "confirm": True,
+                    },
+                )
+                confirmed_payload = json.loads(confirmed_body)
+                state_response, state_body = request(
+                    server,
+                    "GET",
+                    "/api/state",
+                    token="test-panel-token",
+                )
+                state = json.loads(state_body)
+                private_preview, private_preview_body = request(
+                    server,
+                    "GET",
+                    "/api/identity/primary",
+                    token="test-panel-token",
+                )
+                unauthorized_preview, _ = request(
+                    server,
+                    "GET",
+                    "/api/identity/primary",
+                )
+
+            self.assertEqual(staged.status, 201)
+            self.assertNotIn(b"private-metadata", pending_bytes)
+            self.assertEqual(confirmed.status, 200)
+            self.assertEqual(
+                confirmed_payload["profile"]["visual_identity"]["status"],
+                "locked",
+            )
+            self.assertNotIn("reference_id", confirmed_payload)
+            self.assertEqual(state_response.status, 200)
+            self.assertTrue(state["photo_modes"]["reference_configured"])
+            self.assertEqual(state["photo_modes"]["identity_pack"]["level"], "basic")
+            self.assertEqual(private_preview.status, 200)
+            self.assertEqual(private_preview.getheader("Content-Type"), "image/png")
+            self.assertEqual(private_preview_body, pending_bytes)
+            self.assertEqual(unauthorized_preview.status, 401)
+            self.assertFalse(any((root / "private" / "images").rglob("pending.png")))
+
+    def test_identity_upload_cannot_replace_a_locked_face(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                origin = f"http://127.0.0.1:{server.server_port}"
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                assets = ImageAssetStore(root / "private" / "images")
+                candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(),
+                    task_scope="existing-face",
+                )
+                reference = assets.confirm_candidate(
+                    candidate_id=candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="existing-face",
+                )
+                server.store.bind_reference(
+                    reference_id=reference.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+
+                response, _ = request(
+                    server,
+                    "POST",
+                    "/api/identity/candidate",
+                    token="test-panel-token",
+                    origin=origin,
+                    raw=tiny_png(rgba=b"\x80\x40\x20\xff"),
+                    content_type="image/png",
+                    extra_headers={"X-Companion-Image-Consent": "adult-authorized"},
+                )
+
+            self.assertEqual(response.status, 409)
+
+    def test_flat_custom_profile_keeps_images_beside_its_own_private_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            profile_path = root / "custom" / "persona.toml"
+            with running_panel(root, profile_path=profile_path) as (server, _):
+                origin = f"http://127.0.0.1:{server.server_port}"
+                server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                response, _ = request(
+                    server,
+                    "POST",
+                    "/api/identity/candidate",
+                    token="test-panel-token",
+                    origin=origin,
+                    raw=tiny_png(),
+                    content_type="image/png",
+                    extra_headers={"X-Companion-Image-Consent": "adult-authorized"},
+                )
+
+            self.assertEqual(response.status, 201)
+            self.assertTrue(any((root / "custom" / "private" / "images").rglob("pending.png")))
+            self.assertFalse((root / "private").exists())
 
     def test_state_explains_codex_builtin_images_without_api_setup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -99,7 +297,7 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.7.0-dev.3")
+                self.assertEqual(payload["version"], "0.7.0-dev.4")
                 self.assertIn("codex_native", payload["photo_modes"])
                 self.assertIn("identity_reuse", payload["photo_modes"])
                 self.assertNotIn("openai_strict", payload["photo_modes"])

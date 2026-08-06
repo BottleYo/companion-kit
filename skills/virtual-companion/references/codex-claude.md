@@ -14,7 +14,7 @@ python3 skills/virtual-companion/scripts/companionctl.py install \
 
 安装器会注册仓库内的 `companion-kit-preview` marketplace，再安装完整 Plugin。Plugin 包含安静的会话 Hook，不向 Codex 暴露独立 Skill，也不检查或改动用户级 Skill 目录。
 
-`0.7.0-dev.3` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。
+`0.7.0-dev.4` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。
 
 - 不读取、不检查也不索要 `OPENAI_API_KEY`。
 - 不让用户选择 Provider、快速模式、严格模式或 API 计费方式。
@@ -31,7 +31,7 @@ python3 skills/virtual-companion/scripts/companionctl.py photo status
 
 Codex 内置生图无需额外 Provider 配置。只有 OpenClaw 或 Hermes 的独立严格适配仍可能使用宿主进程中的 `OPENAI_API_KEY`，不得把这些要求带回 Codex 对话。
 
-生成结果只返回当前任务。候选确认前不会成为固定形象。第一次照片可以从三种方式开始：上传有权使用的成年人物或虚构形象参考、描述后生成、或让 Persona 自己决定。候选 PNG 必须同时位于 Codex `generated_images`，并出现在当前任务图片工具的短期回执里；回执绑定任务、路径和内容哈希，两小时过期且只能消费一次。用户确认主脸后，下一任务的 Runtime 会取回同一私有 Identity Pack 并按画面选择参考；普通画面只用主脸，侧脸或全身画面最多加入一张对应补充。任一已登记成员损坏或缺失时整包停止，不生成替代脸。
+生成结果只返回当前任务。候选确认前不会成为固定形象。已有参考图时，可以在面板选择 PNG、JPG 或 WebP，预览并确认使用权后进入候选槽；服务端不接收任意本地路径。也可以等第一次照片请求，再上传有权使用的参考、描述后生成，或让 Persona 自己决定。聊天入口的候选 PNG 必须同时位于 Codex `generated_images`，并出现在当前任务图片工具的短期回执里；回执绑定任务、路径和内容哈希，两小时过期且只能消费一次。用户确认主脸后，下一任务的 Runtime 会取回同一私有 Identity Pack 并按画面选择参考；普通画面只用主脸，侧脸或全身画面最多加入一张对应补充。任一已登记成员损坏或缺失时整包停止，不生成替代脸。
 
 当前版本已经完成上述本地回执、暂存、确认、跨任务取回和缺图失败关闭链路。真实 Codex 是否使用预期的图片工具名称、是否给出可识别的回执路径，以及参考图是否确实进入图片工具参数，仍要按开发者预览清单做端到端验收，不能只根据 Runtime 文本认定已经通过。
 
