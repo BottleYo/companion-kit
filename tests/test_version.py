@@ -64,7 +64,7 @@ class VersionTests(unittest.TestCase):
         self.assertIn("把这段原样发给它", readme)
         self.assertIn("不要调用 skill-installer", readme)
         self.assertIn("install --host codex --apply", readme)
-        self.assertIn("不要删除 Companion Kit 的本地数据目录", readme)
+        self.assertIn("不要检查、移动或清理任何用户级 Skill 目录", readme)
 
 
 if __name__ == "__main__":
