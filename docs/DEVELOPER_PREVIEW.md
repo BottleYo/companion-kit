@@ -2,7 +2,7 @@
 
 ## 当前定位
 
-`0.7.0-dev.5` 是 Codex-first Developer Preview，不是面向普通用户的稳定版本。它适合愿意在测试环境验证初始化、Plugin 安装、安静 Persona、Codex 内置生图、固定脸部身份和升级恢复点的开发者。
+`0.7.0-dev.6` 是 Codex-first Developer Preview，不是面向普通用户的稳定版本。它适合愿意在测试环境验证初始化、Plugin 安装、安静 Persona、Codex 内置生图、固定脸部身份和升级恢复点的开发者。
 
 当前开发主线已经调整为 Codex 优先。普通用户内测暂缓，先用未参与开发的 Codex 环境验证“一次面板初始化，后续自然聊天、直接拍照、继续解决问题”的完整体验。OpenClaw、Hermes 与 Claude 暂时只做现有能力回归和安全修复。
 
@@ -10,7 +10,7 @@
 
 - Codex 独立 Persona；其他宿主原有配置不会被面板保存操作修改；
 - 一句话 Persona 草稿、可选模板、预览、调整和用户字段保留；
-- Codex 完整 Plugin 安装、`SessionStart` Hook 和无 Skill 的自然聊天入口；
+- Codex 完整 Plugin 安装、`/hooks` 人工审核引导、`SessionStart` 运行回执和无 Skill 的自然聊天入口；
 - Codex 内置图片生成，不需要 API Key 或 Provider；
 - 面板直接选择 PNG、JPG 或 WebP 参考图，浏览器预览、使用权确认、候选暂存和二次确认；
 - Codex 当前任务图片回执、候选 PNG 暂存、明确确认、唯一身份参考和新任务取回；
@@ -53,11 +53,14 @@ export COMPANION_HOME="$COMPANION_TEST_HOME"
 
 - 打开本地管理面板；
 - 用一句话描述 Persona，或者选择模板起点；检查自动补全内容并保存；Codex 不应出现图片 Provider 或 API Key 选项；
-- 完成安装后在新任务中验证不需要再次输入 Skill 名称；
+- 完成安装后检查面板只能显示“Plugin 已安装，等待审核”，不能直接显示可使用；
+- 在 Codex 输入 `/hooks`，分别审核 `SessionStart → codex_context.py` 和图片工具专用 `PostToolUse → codex_image_receipt.py`；面板只能复制命令和记录用户已操作，不能替用户确认；
+- 审核后新建任务，检查面板从“等待新任务验证”自动变为“Persona 与主脸已成功加载”；已有主脸时如果仍显示“参考图已保存，但新任务尚未加载”，不要重传图片，先排查 Hook 是否实际运行；
+- 在新任务中验证不需要再次输入 Skill 名称；
 - 验证普通聊天自然，不复述人格标签或技术状态；
 - 验证普通问题仍由 Codex 原有能力完整处理。
 
-当前版本已经实现无 Skill 的会话 Persona 加载。它仍需在未参与开发的 Codex 环境完成安装、Hook 信任、新任务重载和普通问题解决的人工验收。
+当前版本已经实现无 Skill 的会话 Persona 加载，并能用最小健康回执证明 Hook 是否真正运行。Hook 的信任动作仍必须由测试者本人完成；它仍需在未参与开发的 Codex 环境完成人工审核、新任务重载和普通问题解决验收。
 
 ### 第二轮：Codex 照片闭环
 
@@ -82,7 +85,7 @@ export COMPANION_HOME="$COMPANION_TEST_HOME"
 - 核对用户恢复点和旧程序快照都能独立通过校验；
 - 模拟新 Plugin 健康检查失败，确认 Codex 恢复旧程序，而不是把正式用户数据替换成备份；
 - 用 `backup recover-copy` 恢复到新目录，确认已存在目标、损坏清单和内容摘要不一致都会被拒绝；
-- 更新成功或回滚后新开任务，确认 Hook 只加载最终版本一次。
+- 更新成功或回滚后，确认旧 Hook 回执已过期、面板重新要求审核；在 `/hooks` 审核最终版本后新开任务，确认只加载最终版本一次。
 
 ### 第四轮：其他宿主回归（不属于本轮）
 

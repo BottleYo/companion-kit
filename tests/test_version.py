@@ -65,6 +65,16 @@ class VersionTests(unittest.TestCase):
         self.assertIn("不要调用 skill-installer", readme)
         self.assertIn("install --host codex --apply", readme)
         self.assertIn("不要检查、移动或清理任何用户级 Skill 目录", readme)
+        self.assertIn("回到 Codex，在输入框发送 /hooks", readme)
+        self.assertIn("SessionStart 只会在新任务开始时运行", readme)
+        self.assertIn("不要让我重新上传图片", readme)
+        self.assertIn("Persona 与主脸已成功加载", readme)
+        self.assertIn("### 安装后还差 1 分钟", readme)
+        install_prompt_end = readme.index("```", readme.index("```text") + 7)
+        quick_hook_guide = readme.index("### 安装后还差 1 分钟")
+        feature_overview = readme.index("## 这版做到了什么")
+        self.assertLess(install_prompt_end, quick_hook_guide)
+        self.assertLess(quick_hook_guide, feature_overview)
 
 
 if __name__ == "__main__":

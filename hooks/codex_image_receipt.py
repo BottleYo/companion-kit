@@ -42,11 +42,19 @@ def main() -> int:
         paths = extract_codex_generated_paths(payload.get("tool_response"))
         if not paths:
             return 0
-        CodexImageReceiptStore().record(
+        recorded = CodexImageReceiptStore().record(
             session_id=str(payload.get("session_id") or ""),
             tool_use_id=str(payload.get("tool_use_id") or ""),
             paths=paths,
         )
+        if recorded:
+            try:
+                from companion_kit.hook_health import HookHealthStore, POST_TOOL_USE
+
+                HookHealthStore(plugin_root=_plugin_root()).record_success(POST_TOOL_USE)
+            except Exception:
+                # 图片回执已保存时，面板健康记录失败不能影响原图片工具结果。
+                pass
     except Exception:
         # 图片回执缺失时，后续身份暂存会失败关闭；不能影响 Codex 原任务。
         return 0

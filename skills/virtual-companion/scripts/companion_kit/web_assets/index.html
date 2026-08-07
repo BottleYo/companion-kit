@@ -223,6 +223,29 @@
         </div>
         <p class="section-intro">本轮优先打磨 Codex。每个宿主仍有自己独立的 Persona；安装到其他工具不会自动复制这份 Codex 人格。</p>
         <div id="hostGrid" class="host-grid" aria-live="polite"></div>
+
+        <article class="hook-health-card" aria-labelledby="hookReadinessTitle">
+          <div class="hook-health-card__heading">
+            <div>
+              <p class="step">安装后的安全检查</p>
+              <h3 id="hookReadinessTitle">正在核对 Companion Kit Hooks</h3>
+            </div>
+            <span id="hookReadinessBadge" class="status-chip status-chip--soft">读取中</span>
+          </div>
+          <p id="hookReadinessDetail" class="section-intro">Plugin 安装成功后，Codex 仍会等你亲自审核其中的 Hooks。</p>
+          <div class="hook-step-list" aria-live="polite">
+            <div id="hookStepPlugin"><strong>1 · Plugin</strong><span>等待检查</span></div>
+            <div id="hookStepReview"><strong>2 · 审核 Hooks</strong><span>等待检查</span></div>
+            <div id="hookStepSession"><strong>3 · 新任务验证</strong><span>等待检查</span></div>
+            <div id="hookStepPersona"><strong>4 · Persona 与主脸</strong><span>等待检查</span></div>
+          </div>
+          <div class="hook-actions">
+            <button id="copyHooksCommand" class="button button--secondary" type="button">复制 /hooks</button>
+            <button id="confirmHooksReviewed" class="button button--primary" type="button">我已完成审核</button>
+          </div>
+          <p class="hint">“我已完成审核”只记录你的操作进度，不会替你信任 Hook，也不会写入 <code>trusted_hash</code>。真正就绪必须等新任务里的 <code>SessionStart</code> 回执。</p>
+          <p id="postToolHookStatus" class="hook-optional-status">图片回执 Hook 会在第一次真实生图后单独验证，不阻塞已有主脸的跨任务使用。</p>
+        </article>
       </section>
 
       <section class="panel maintenance-card" aria-labelledby="maintenanceTitle">

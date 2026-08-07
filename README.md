@@ -1,6 +1,6 @@
 # Companion Kit
 
-> 给 Codex 加一个会聊天、会干活、也会发照片的虚拟陪伴对象。当前版本是 `0.7.0-dev.5`，Codex-first Developer Preview。
+> 给 Codex 加一个会聊天、会干活、也会发照片的虚拟陪伴对象。当前版本是 `0.7.0-dev.6`，Codex-first Developer Preview。
 
 很多“虚拟陪伴”有个尴尬时刻：平时聊得好好的，一说“拍张照片给我”，对面立刻变成工单机器人。
 
@@ -28,14 +28,38 @@ python3 skills/virtual-companion/scripts/companionctl.py install --host codex --
 Plugin 安装完成后，运行：
 python3 skills/virtual-companion/scripts/companionctl.py ui
 
-打开本地面板让我完成初始化。最后提醒我检查并信任 Companion Kit 的两个 Hook，然后新开一个 Codex 任务开始使用。
+打开本地面板让我完成 Persona 初始化和人物主脸确认。
+
+程序安装完以后先不要说“已经可以使用”，请停下来提醒我亲自完成下面几步：
+1. 回到 Codex，在输入框发送 /hooks。
+2. 找到并审核 Companion Kit 的两个 Hook：SessionStart → codex_context.py，以及图片工具专用 PostToolUse → codex_image_receipt.py。
+3. 我确认信任后，回到 Companion Kit 面板点“我已完成审核”。这个按钮只记录进度，不能代替 Codex 的信任操作。
+4. 新建一个 Codex 任务，不要继续使用安装任务。SessionStart 只会在新任务开始时运行。
+5. 等面板显示绿色“Persona 与主脸已成功加载”，再告诉我安装和运行验证均已完成。
+
+如果面板仍显示“参考图已保存，但新任务尚未加载”，不要让我重新上传图片，也不要修改 Codex 全局配置；先检查 /hooks 是否已经审核，以及 Plugin 是否仍处于启用状态。
 ```
 
-如果刚才的安装对话已经说要用 `skill-installer`，别让它接着跑。新开一个任务，把上面整段发过去就行。
+### 安装后还差 1 分钟
+
+Plugin 装好以后，Codex 还会等你亲自确认 Hook。照着下面做就行：
+
+1. 回到 Codex，在输入框发送 `/hooks`。
+2. 找到 Companion Kit，确认这两个 Hook：
+   - `SessionStart → codex_context.py`
+   - `PostToolUse → codex_image_receipt.py`
+3. 回到 Companion Kit 面板，点“我已完成审核”。
+4. 新建一个 Codex 任务。不要在安装任务里继续测试。
+
+看到面板变成绿色，并显示“Persona 与主脸已成功加载”，就可以正常聊天和拍照了。
+
+如果面板还在说“参考图已保存，但新任务尚未加载”，先检查 `/hooks` 和 Plugin 启用状态，不用重新上传照片。
+
+如果刚才的安装对话已经说要用 `skill-installer`，别让它接着跑。新开一个任务，把上面整段安装指令发过去就行。
 
 ## 这版做到了什么
 
-- 新任务通过 Plugin 安静加载 Persona，普通聊天不需要调用 Skill。
+- 新任务通过 Plugin 安静加载 Persona，普通聊天不需要调用 Skill；面板会验证这个 Hook 是否真的运行过，不再把“装上了”冒充“能用了”。
 - 本地 Web 面板支持一句话创建 Persona，也可以从模板开始，再慢慢改。
 - Codex 生图只用内置 `gpt-image-2`，不需要 API Key，不需要选择 Provider。
 - 人物长相可以晚点决定。已有参考图可以直接在面板上传；没想好就先聊天，之后再描述生成或让 Persona 自己想一个候选。
@@ -66,12 +90,16 @@ python3 skills/virtual-companion/scripts/companionctl.py ui
 
 面板只监听 `127.0.0.1`。每次启动都会生成新的临时访问令牌，不会顺手在公网开一家人格配置店。
 
-接下来做三件事就能开聊，第四件完全可以以后再说：
+接下来先把人物设定好，再完成一次 Codex 的安全审核。后面几步需要你亲自操作，安装助手不能代劳：
 
 1. 用一句话描述想认识的人，或者选一个模板起步。
 2. 看看系统补出的 Persona，把不喜欢的地方改掉。
 3. 保存并安装到 Codex。
-4. 如果手里已经有合适的参考图，可以在“人物形象”里上传并确认主脸；没有就跳过。
+4. 如果手里已经有合适的参考图，可以在“人物形象”里上传并确认主脸；没有就先跳过。
+5. 回到 Codex，在输入框发送 `/hooks`。
+6. 审核并信任 `SessionStart → codex_context.py` 和图片工具专用 `PostToolUse → codex_image_receipt.py`。
+7. 回到面板点“我已完成审核”，然后新建一个 Codex 任务。不要在安装任务里继续测试，因为这里不会重新触发 `SessionStart`。
+8. 面板变成绿色“Persona 与主脸已成功加载”后，才算照片身份的跨任务链路已经运行就绪。
 
 比如可以输入：
 
@@ -81,16 +109,35 @@ python3 skills/virtual-companion/scripts/companionctl.py ui
 
 初始化时完全可以不决定长相。先聊起来，哪天真的想看照片了再选脸。手里已有参考图时也不用绕去聊天窗口转述路径：保存 Persona 后，在面板里选择图片、预览，再点“设为固定主脸”即可。
 
-### 3. 信任 Codex Hook
+### 3. 完成 Codex Hook 审核（需要你亲自操作）
 
 Companion Kit 使用两个很窄的 Hook：
 
 - `SessionStart` 在新任务开始时读取本地 Persona 和关系投影。
 - 只匹配图片工具的 `PostToolUse` 记录短期图片回执，证明候选确实来自当前任务。
 
-第一次安装后，Codex 会要求你检查并信任命令 Hook。按界面提示处理即可；支持 `/hooks` 的版本也可以在那里查看。
+第一次安装后，Codex 不会自动信任 Plugin 里的命令 Hook。这是安全边界，不是安装失败。请在 Codex 输入 `/hooks`，逐项查看并信任：
 
-Hook 不读取聊天正文，也不保存聊天记录。配置不存在或暂时读不到时，它会安静退出，不影响 Codex 正常工作。
+- `SessionStart` → `codex_context.py`；
+- 图片工具专用 `PostToolUse` → `codex_image_receipt.py`。
+
+具体操作很短：
+
+1. 在 Codex 的输入框发送 `/hooks`；
+2. 打开 Companion Kit 的两个 Hook，确认命令分别指向上面两个脚本，再使用界面提供的审核或信任选项；
+3. 回到 Companion Kit 面板点“我已完成审核”；
+4. 新建一个 Codex 任务，让 `SessionStart` 真正运行一次；
+5. 回到面板查看结果。
+
+面板可以帮你复制 `/hooks`，但不能替你按下信任。“我已完成审核”也只是记录安装进度，不是伪造一份信任结果。`SessionStart` 真正运行后会写一张很小的健康回执；只有 Persona、主脸和本次 `SessionStart` 都验证通过，面板才会变成绿色“Persona 与主脸已成功加载”。
+
+如果只看到“参考图已保存，但新任务尚未加载”，不需要重新上传图片：完成 Hook 审核并新建任务即可。`PostToolUse` 会在第一次真实生图后单独显示验证状态，不会阻塞已经固定主脸的跨任务使用。
+
+如果 `/hooks` 里完全找不到 Companion Kit，先回面板检查 Plugin 是否已经安装并启用。不要靠反复上传参考图碰运气，那张图没有坏，只是新任务还没拿到它。
+
+Plugin 版本或 Hook bundle 内容变化后，旧回执会自动过期，面板重新提示审核。项目不会写 `trusted_hash`，也不会使用绕过 Hook 信任的启动参数。
+
+Hook 不读取聊天正文，也不保存聊天记录。健康回执只含 schema、Plugin 版本、Hook bundle 摘要、Hook 类型和最近成功时间，不含提示词、任务 ID、聊天正文或参考图路径。配置不存在或暂时读不到时，人物层会安静退出，不影响 Codex 正常工作。
 
 ### 4. 新开任务，直接说话
 
@@ -233,7 +280,7 @@ python3 skills/virtual-companion/scripts/companionctl.py ui
 
 面板里的“备份和更新”会先检查，不会一打开就自作主张。发现新版本后，你再点“确认更新”。它会依次保存并校验用户恢复点、在副本上试读旧数据、另存旧 Plugin，然后才让 Codex 切换程序。新版本即时检查不过，会恢复旧程序；不会拿旧备份覆盖正在使用的 Persona。
 
-程序换完以后新开一个 Codex 任务。已经打开的任务继续用启动时加载的版本，不适合中途换脑子。
+程序换完以后，先在 `/hooks` 重新审核当前版本，再新开一个 Codex 任务。已经打开的任务继续用启动时加载的版本，不适合中途换脑子。Persona、关系数据和参考图不会因为 Hook 重新审核而被清空。
 
 命令行也可以完成同一件事：
 
@@ -256,6 +303,7 @@ python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
 - 面板选图会先在浏览器里去掉原文件附带的信息，服务端还会重新校验并清洗 PNG；
 - 面板图片接口需要本次启动的临时授权、同源请求和明确的图片使用权确认，不提供任意路径读取；
 - 短期图片回执只保存哈希，不保存原始任务标识和绝对路径；
+- Hook 健康回执只保存版本、bundle 摘要、类型和成功时间；面板记录的“已完成审核”也不等同于或代替 Codex 信任；
 - Web 面板只读写 Codex Persona，不查看其他宿主配置，也不检查 API Key。
 
 完整边界见[隐私说明](PRIVACY.md)、[数据生命周期](docs/DATA_LIFECYCLE.md)和[威胁模型](docs/THREAT_MODEL.md)。

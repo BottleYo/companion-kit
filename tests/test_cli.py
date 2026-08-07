@@ -23,6 +23,38 @@ SKILL_ROOT = PROJECT_ROOT / "skills" / "virtual-companion"
 
 
 class CliTests(unittest.TestCase):
+    def test_codex_init_does_not_claim_runtime_ready_before_hooks_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with (
+                patch.dict(
+                    os.environ,
+                    {"COMPANION_HOME": str(Path(tmp).resolve() / "home")},
+                    clear=True,
+                ),
+                redirect_stdout(output),
+            ):
+                code = main(
+                    [
+                        "init",
+                        "--host",
+                        "codex",
+                        "--template",
+                        "warm_healer",
+                        "--display-name",
+                        "小禾",
+                    ]
+                )
+
+            message = output.getvalue()
+            self.assertEqual(code, 0)
+            self.assertIn("Persona 已保存", message)
+            self.assertIn("/hooks", message)
+            self.assertIn("SessionStart", message)
+            self.assertIn("以面板的运行验证结果为准", message)
+            self.assertNotIn("配置完成", message)
+            self.assertNotIn("开一个新任务直接聊天", message)
+
     def test_backup_cli_creates_lists_verifies_and_recovers_without_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve() / "companion-home"
