@@ -82,7 +82,7 @@ class FakeCodex:
                         "version": version,
                         "installed": True,
                         "enabled": not (
-                            self.fail_new_health and version == "0.7.0-dev.5"
+                            self.fail_new_health and version == "0.7.0-dev.6"
                         ),
                         "source": {
                             "source": "local",
@@ -101,11 +101,11 @@ class FakeCodex:
                 stderr="",
             )
         if argv[1:3] == ["plugin", "add"]:
-            self._write_cache("0.7.0-dev.5", marker="new-program")
+            self._write_cache("0.7.0-dev.6", marker="new-program")
             return subprocess.CompletedProcess(
                 argv,
                 0,
-                stdout=json.dumps({"version": "0.7.0-dev.5"}),
+                stdout=json.dumps({"version": "0.7.0-dev.6"}),
                 stderr="",
             )
         raise AssertionError(f"unexpected command: {argv}")
@@ -123,7 +123,7 @@ class CodexUpgradeExecutorTests(unittest.TestCase):
             which=lambda name: "/usr/bin/codex" if name == "codex" else None,
             runner=fake,
         )
-        backups = BackupManager(layout, product_version="0.7.0-dev.5")
+        backups = BackupManager(layout, product_version="0.7.0-dev.6")
         executor = CodexUpgradeExecutor(
             planner=planner,
             backups=backups,
@@ -153,17 +153,17 @@ class CodexUpgradeExecutorTests(unittest.TestCase):
             self.assertTrue(result.applied)
             self.assertFalse(result.rolled_back)
             self.assertEqual(result.from_version, "0.7.0-dev.4")
-            self.assertEqual(result.to_version, "0.7.0-dev.5")
+            self.assertEqual(result.to_version, "0.7.0-dev.6")
             self.assertEqual(layout.profile_path.read_bytes(), before)
             self.assertTrue(backups.verify(result.backup_id).valid)
             program = CodexProgramSnapshotStore(layout).verify(
                 result.program_snapshot_id
             )
             self.assertEqual(program.plugin_version, "0.7.0-dev.4")
-            self.assertEqual(fake._installed_version(), "0.7.0-dev.5")
+            self.assertEqual(fake._installed_version(), "0.7.0-dev.6")
             receipt = InstallationReceiptStore(layout).read()
             self.assertIsNotNone(receipt)
-            self.assertEqual(receipt.plugin_version, "0.7.0-dev.5")
+            self.assertEqual(receipt.plugin_version, "0.7.0-dev.6")
 
     def test_failed_new_health_check_restores_old_program_not_old_persona(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -291,7 +291,7 @@ class CodexUpgradeExecutorTests(unittest.TestCase):
 
             self.assertTrue(result.applied)
             self.assertFalse(result.upgrade_registered)
-            self.assertEqual(fake._installed_version(), "0.7.0-dev.5")
+            self.assertEqual(fake._installed_version(), "0.7.0-dev.6")
 
     def test_program_snapshot_tampering_is_rejected_before_manual_rollback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

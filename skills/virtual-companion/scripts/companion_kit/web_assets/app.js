@@ -56,6 +56,16 @@ const elements = {
   identityPlaceholderCopy: document.querySelector("#identityPlaceholderCopy"),
   identityCandidateStatus: document.querySelector("#identityCandidateStatus"),
   hostGrid: document.querySelector("#hostGrid"),
+  hookReadinessTitle: document.querySelector("#hookReadinessTitle"),
+  hookReadinessBadge: document.querySelector("#hookReadinessBadge"),
+  hookReadinessDetail: document.querySelector("#hookReadinessDetail"),
+  hookStepPlugin: document.querySelector("#hookStepPlugin"),
+  hookStepReview: document.querySelector("#hookStepReview"),
+  hookStepSession: document.querySelector("#hookStepSession"),
+  hookStepPersona: document.querySelector("#hookStepPersona"),
+  copyHooksCommand: document.querySelector("#copyHooksCommand"),
+  confirmHooksReviewed: document.querySelector("#confirmHooksReviewed"),
+  postToolHookStatus: document.querySelector("#postToolHookStatus"),
   maintenanceStatus: document.querySelector("#maintenanceStatus"),
   backupSummary: document.querySelector("#backupSummary"),
   upgradeSummary: document.querySelector("#upgradeSummary"),
@@ -93,6 +103,7 @@ let pendingHost = null;
 let identityPng = null;
 let stagedIdentity = null;
 let identityRenderSequence = 0;
+let hookHealthPoll = null;
 
 function setText(element, value) {
   element.textContent = value == null ? "" : String(value);
@@ -487,7 +498,7 @@ function createHostCard(host) {
   const button = document.createElement("button");
   button.type = "button";
   if (host.existing) {
-    setText(button, "已安装");
+    setText(button, host.host === "codex" ? "Plugin 已安装" : "已安装");
     button.disabled = true;
   } else if (!host.available) {
     setText(button, "环境不可用");
@@ -503,6 +514,103 @@ function createHostCard(host) {
 function renderHosts() {
   const ordered = [...state.hosts].sort((left, right) => (left.host === "codex" ? -1 : right.host === "codex" ? 1 : 0));
   elements.hostGrid.replaceChildren(...ordered.map(createHostCard));
+}
+
+function setHookStep(element, text, status = "waiting") {
+  const copy = element.querySelector("span");
+  setText(copy, text);
+  element.classList.toggle("is-done", status === "done");
+  element.classList.toggle("is-current", status === "current");
+}
+
+function renderHookReadiness(payload) {
+  const readiness = payload?.runtime_readiness || {};
+  const hooks = payload?.hook_health || {};
+  if (state) {
+    state.runtime_readiness = readiness;
+    state.hook_health = hooks;
+  }
+
+  setText(elements.hookReadinessTitle, readiness.summary || "正在核对 Companion Kit Hooks");
+  setText(elements.hookReadinessDetail, readiness.detail || "Plugin 安装成功后，Codex 仍会等你亲自审核其中的 Hooks。");
+  elements.hookReadinessBadge.classList.remove("status-chip--soft", "status-chip--warning", "status-chip--error");
+  const badgeByState = {
+    ready: "可以开始使用",
+    review_required: "需要审核 Hooks",
+    verification_pending: "等待新任务验证",
+    uninstalled: "尚未安装",
+    plugin_disabled: "Plugin 已停用",
+    update_required: "需要更新",
+    installation_unknown: "状态未知",
+    persona_required: "还差 Persona",
+    primary_face_required: "还差主脸",
+    identity_unavailable: "主脸暂不可用",
+  };
+  setText(elements.hookReadinessBadge, badgeByState[readiness.state] || "继续完成配置");
+  if (readiness.ready) {
+    // 默认绿色状态即可。
+  } else if (["plugin_disabled", "identity_unavailable", "installation_unknown"].includes(readiness.state)) {
+    elements.hookReadinessBadge.classList.add("status-chip--error");
+  } else {
+    elements.hookReadinessBadge.classList.add("status-chip--warning");
+  }
+
+  const pluginDone = readiness.plugin_installed && readiness.plugin_enabled && readiness.plugin_current;
+  setHookStep(
+    elements.hookStepPlugin,
+    pluginDone ? "已安装并启用" : readiness.plugin_installed ? "已安装，等待更新或启用" : "尚未安装",
+    pluginDone ? "done" : "current",
+  );
+  const reviewDone = readiness.session_hook_verified || hooks.review?.acknowledged;
+  setHookStep(
+    elements.hookStepReview,
+    !pluginDone
+      ? "先完成 Plugin 安装"
+      : readiness.session_hook_verified
+        ? "当前 Hook 已被实际运行"
+        : hooks.review?.acknowledged
+          ? "已记录你完成审核"
+          : "在 Codex 输入 /hooks 后逐项审核",
+    reviewDone ? "done" : pluginDone ? "current" : "waiting",
+  );
+  setHookStep(
+    elements.hookStepSession,
+    !pluginDone
+      ? "完成安装与审核后再验证"
+      : readiness.session_loaded
+        ? "当前资料已由 SessionStart 加载"
+        : readiness.session_hook_verified
+          ? "Hook 跑过，但当前资料需要新任务重载"
+          : "审核后新建一个 Codex 任务",
+    readiness.session_loaded ? "done" : reviewDone ? "current" : "waiting",
+  );
+  setHookStep(
+    elements.hookStepPersona,
+    readiness.ready ? "Persona 与主脸均已加载" : readiness.reference_saved ? "主脸已保存，尚未在新任务加载" : readiness.persona_configured ? "Persona 已保存，主脸可稍后设置" : "尚未完成 Persona",
+    readiness.ready ? "done" : readiness.session_loaded ? "current" : "waiting",
+  );
+
+  elements.confirmHooksReviewed.disabled = !pluginDone || reviewDone;
+  setText(
+    elements.confirmHooksReviewed,
+    readiness.session_hook_verified
+      ? "已通过新任务验证"
+      : hooks.review?.acknowledged
+        ? "已记录审核完成"
+        : "我已完成审核",
+  );
+  setText(
+    elements.postToolHookStatus,
+    hooks.post_tool_use?.verified
+      ? "图片回执 Hook 已在一次真实生图后验证。"
+      : "图片回执 Hook 会在第一次真实生图后单独验证；它不阻塞已有主脸的跨任务使用。",
+  );
+  const pack = state?.photo_modes?.identity_pack;
+  if (readiness.reference_saved && !readiness.session_loaded) {
+    setText(elements.referenceStatus, "主脸已保存；新任务尚未加载，请先完成 Hook 审核与验证");
+  } else if (readiness.reference_saved && readiness.session_loaded && pack?.level === "basic") {
+    setText(elements.referenceStatus, "形象稳定性：基础 · 主脸已成功加载，普通自拍可以复用");
+  }
 }
 
 function openInstallDialog(host) {
@@ -534,12 +642,15 @@ function renderProfile(profile) {
   setText(elements.profileStatus, "已配置");
   const locked = profile.visual_identity.status === "locked" && profile.visual_identity.reference_count === 1;
   const pack = state?.photo_modes?.identity_pack;
+  const loaded = state?.runtime_readiness?.session_loaded === true;
   if (!locked) {
     setText(elements.referenceStatus, "尚未固定人物原型；第一次要照片时再决定");
   } else if (!pack?.ready) {
     setText(elements.referenceStatus, "身份参考暂时不可用；人物生图会暂停，不会偷偷换脸");
+  } else if (!loaded) {
+    setText(elements.referenceStatus, "主脸已保存；新任务尚未加载，请先完成 Hook 审核与验证");
   } else if (pack.level === "basic") {
-    setText(elements.referenceStatus, "形象稳定性：基础 · 主脸已确认，普通自拍已经可以复用");
+    setText(elements.referenceStatus, "形象稳定性：基础 · 主脸已成功加载，普通自拍可以复用");
   } else {
     const additions = [];
     if (pack.roles.includes("profile_face")) additions.push("侧脸");
@@ -628,11 +739,11 @@ async function applyUpgrade() {
       elements.upgradeSummary,
       result.upgrade_registered === false
         ? `已经从 ${result.from_version} 更新到 ${result.to_version}，但安装登记没有写入；恢复点 ${result.backup_id} 仍然有效，下次检查会提示补登记。`
-        : `已经从 ${result.from_version} 更新到 ${result.to_version}。恢复点 ${result.backup_id} 和旧程序快照都已保留；请新开一个 Codex 任务。`,
+        : `已经从 ${result.from_version} 更新到 ${result.to_version}。恢复点 ${result.backup_id} 和旧程序快照都已保留；请重新审核 Hooks，再新建任务完成验证。`,
     );
     elements.applyUpgrade.hidden = true;
-    showToast("更新完成。新开一个 Codex 任务，就会使用新版本");
-    await loadBackups();
+    showToast("更新完成；请重新审核 Companion Kit Hooks，再新建任务验证");
+    await loadState();
   } catch (error) {
     setText(elements.maintenanceStatus, "更新没有完成");
     setText(elements.upgradeSummary, error.message);
@@ -670,6 +781,45 @@ async function createBackup() {
   }
 }
 
+async function copyHooksCommand() {
+  const command = "/hooks";
+  let helper = null;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(command);
+    } else {
+      helper = document.createElement("textarea");
+      helper.value = command;
+      helper.setAttribute("readonly", "");
+      helper.style.position = "fixed";
+      helper.style.opacity = "0";
+      document.body.append(helper);
+      helper.select();
+      if (!document.execCommand("copy")) throw new Error("copy failed");
+    }
+    showToast("已复制 /hooks；请回到 Codex 打开 Hook 审核界面");
+  } catch {
+    showToast("请在 Codex 中手动输入 /hooks");
+  } finally {
+    helper?.remove();
+  }
+}
+
+async function refreshHookHealth() {
+  if (!token || document.hidden) return;
+  try {
+    const payload = await api("/api/hook-health");
+    renderHookReadiness(payload);
+  } catch {
+    // 轮询失败不打断正在填写的 Persona；显式操作仍会显示错误。
+  }
+}
+
+function startHookHealthPolling() {
+  if (hookHealthPoll !== null) return;
+  hookHealthPoll = window.setInterval(refreshHookHealth, 5000);
+}
+
 async function loadState() {
   if (!token) {
     elements.authError.hidden = false;
@@ -682,9 +832,11 @@ async function loadState() {
     showToast(error.message);
     return;
   }
+  renderHookReadiness(state);
   renderProfile(state.profile);
   renderTemplates();
   renderHosts();
+  startHookHealthPolling();
   await loadBackups();
 }
 
@@ -730,10 +882,11 @@ elements.saveProfile.addEventListener("click", async () => {
       body: JSON.stringify(body),
     });
     state.profile = payload.profile;
+    await refreshHookHealth();
     renderProfile(payload.profile);
     renderTemplates();
-    setText(elements.saveHint, "已经保存。新开一个 Codex 任务就可以自然聊天、解决问题或要照片。");
-    showToast("TA 已经在 Codex 里准备好了");
+    setText(elements.saveHint, "Persona 已保存。接下来请看下方 Hook 状态；只有新任务验证后，面板才会显示可以使用。");
+    showToast("Persona 已保存，接下来检查 Companion Kit Hooks");
   } catch (error) {
     showToast(error.message);
     if (error.status === 409) await loadState();
@@ -843,6 +996,27 @@ elements.resetIdentity.addEventListener("click", () => {
 elements.createBackup.addEventListener("click", createBackup);
 elements.checkUpgrade.addEventListener("click", checkUpgrade);
 elements.applyUpgrade.addEventListener("click", applyUpgrade);
+elements.copyHooksCommand.addEventListener("click", copyHooksCommand);
+elements.confirmHooksReviewed.addEventListener("click", async () => {
+  const confirmed = window.confirm(
+    "这个按钮不会替你信任 Hook。请确认你已经回到 Codex，在 /hooks 中审核并信任 Companion Kit 的 SessionStart 和 PostToolUse。",
+  );
+  if (!confirmed) return;
+  elements.confirmHooksReviewed.disabled = true;
+  setText(elements.confirmHooksReviewed, "正在记录…");
+  try {
+    const payload = await api("/api/hooks/reviewed", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
+    renderHookReadiness(payload);
+    showToast("已记录审核完成；现在新建一个 Codex 任务，面板会自动验证");
+  } catch (error) {
+    showToast(error.message);
+    elements.confirmHooksReviewed.disabled = false;
+    setText(elements.confirmHooksReviewed, "我已完成审核");
+  }
+});
 
 elements.confirmInstall.addEventListener("click", async (event) => {
   event.preventDefault();
@@ -855,7 +1029,11 @@ elements.confirmInstall.addEventListener("click", async (event) => {
       body: JSON.stringify({ host: pendingHost, confirm: true }),
     });
     elements.installDialog.close();
-    showToast(pendingHost === "codex" ? "安装完成，新开一个 Codex 任务就可以开始" : "安装完成");
+    showToast(
+      pendingHost === "codex"
+        ? "Plugin 已安装；请先审核 Companion Kit Hooks，再新建任务完成验证。"
+        : "安装完成",
+    );
     await loadState();
   } catch (error) {
     showToast(error.message);

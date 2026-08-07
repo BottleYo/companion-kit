@@ -93,9 +93,22 @@ class WebPanelTests(unittest.TestCase):
                 self.assertIn(b'id="identityFile"', payload)
                 self.assertIn(b'id="createBackup"', payload)
                 self.assertIn(b'id="applyUpgrade"', payload)
+                self.assertIn(b'id="copyHooksCommand"', payload)
+                self.assertIn(b'id="confirmHooksReviewed"', payload)
                 self.assertIn("设为固定主脸".encode("utf-8"), payload)
                 self.assertIn("default-src 'self'", response.getheader("Content-Security-Policy"))
                 self.assertEqual(response.getheader("Cache-Control"), "no-store")
+
+    def test_install_copy_does_not_claim_codex_is_runtime_ready(self) -> None:
+        app_js = (
+            SKILL_ROOT / "scripts" / "companion_kit" / "web_assets" / "app.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("安装完成，新开一个 Codex 任务就可以开始", app_js)
+        self.assertIn(
+            "Plugin 已安装；请先审核 Companion Kit Hooks，再新建任务完成验证。",
+            app_js,
+        )
 
     def test_panel_creates_verified_restore_point_only_after_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -148,7 +161,7 @@ class WebPanelTests(unittest.TestCase):
             def to_dict(self) -> dict[str, object]:
                 return {
                     "ready": True,
-                    "release_version": "0.7.0-dev.5",
+                    "release_version": "0.7.0-dev.6",
                     "marketplace_source_type": "local",
                     "update_candidate": True,
                 }
@@ -180,7 +193,7 @@ class WebPanelTests(unittest.TestCase):
             def to_dict(self) -> dict[str, object]:
                 return {
                     "from_version": "0.7.0-dev.4",
-                    "to_version": "0.7.0-dev.5",
+                    "to_version": "0.7.0-dev.6",
                     "backup_id": "20260806T080000Z-deadbeef",
                     "applied": True,
                     "durable_data_replaced": False,
@@ -430,19 +443,267 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.7.0-dev.5")
+                self.assertEqual(payload["version"], "0.7.0-dev.6")
                 self.assertIn("codex_native", payload["photo_modes"])
                 self.assertIn("identity_reuse", payload["photo_modes"])
                 self.assertNotIn("openai_strict", payload["photo_modes"])
                 self.assertEqual(
                     payload["photo_modes"]["identity_reuse"]["status"],
-                    "本地链路已就绪，等待真实 Codex 验收",
+                    "尚未确认主脸",
                 )
                 self.assertNotIn("profiles", payload)
                 self.assertNotIn("photo_modes_by_host", payload)
                 self.assertEqual([host["host"] for host in payload["hosts"]], ["codex"])
                 self.assertNotIn("must-not-be-read", json.dumps(payload))
                 self.assertNotIn("Bearer ", json.dumps(payload))
+
+    def test_installed_plugin_without_session_hook_receipt_is_not_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                server.installer.install("codex")
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/state",
+                    token="test-panel-token",
+                )
+                payload = json.loads(body)
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(payload["runtime_readiness"]["state"], "review_required")
+            self.assertFalse(payload["runtime_readiness"]["ready"])
+            self.assertTrue(payload["runtime_readiness"]["plugin_installed"])
+            self.assertEqual(payload["hook_health"]["session_start"]["state"], "missing")
+            self.assertNotIn("trusted_hash", json.dumps(payload))
+
+    def test_healthy_identity_pack_is_saved_but_not_loaded_without_session_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                server.installer.install("codex")
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                assets = ImageAssetStore(root / "private" / "images")
+                candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(),
+                    task_scope="saved-primary",
+                )
+                primary = assets.confirm_candidate(
+                    candidate_id=candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="saved-primary",
+                )
+                server.store.bind_reference(
+                    reference_id=primary.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/hook-health",
+                    token="test-panel-token",
+                )
+                payload = json.loads(body)
+
+            self.assertEqual(response.status, 200)
+            self.assertTrue(payload["runtime_readiness"]["reference_saved"])
+            self.assertFalse(payload["runtime_readiness"]["session_loaded"])
+            self.assertEqual(
+                payload["runtime_readiness"]["summary"],
+                "参考图已保存，但新任务尚未加载",
+            )
+            self.assertEqual(payload["runtime_readiness"]["state"], "review_required")
+
+    def test_review_ack_then_session_receipt_moves_panel_to_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                server.installer.install("codex")
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                assets = ImageAssetStore(root / "private" / "images")
+                candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(),
+                    task_scope="ready-primary",
+                )
+                primary = assets.confirm_candidate(
+                    candidate_id=candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="ready-primary",
+                )
+                server.store.bind_reference(
+                    reference_id=primary.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+                origin = f"http://127.0.0.1:{server.server_port}"
+                acknowledged, acknowledged_body = request(
+                    server,
+                    "POST",
+                    "/api/hooks/reviewed",
+                    token="test-panel-token",
+                    origin=origin,
+                    body={"confirm": True},
+                )
+                pending = json.loads(acknowledged_body)
+                server.hook_health_store.record_success("session_start")
+                verified, verified_body = request(
+                    server,
+                    "GET",
+                    "/api/hook-health",
+                    token="test-panel-token",
+                )
+                ready = json.loads(verified_body)
+
+            self.assertEqual(acknowledged.status, 200)
+            self.assertEqual(
+                pending["runtime_readiness"]["state"],
+                "verification_pending",
+            )
+            self.assertEqual(verified.status, 200)
+            self.assertEqual(ready["runtime_readiness"]["state"], "ready")
+            self.assertTrue(ready["runtime_readiness"]["ready"])
+            self.assertEqual(
+                ready["runtime_readiness"]["summary"],
+                "Persona 与主脸已成功加载",
+            )
+            self.assertFalse(ready["hook_health"]["post_tool_use"]["verified"])
+
+    def test_stale_session_receipt_returns_panel_to_review_required(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                server.installer.install("codex")
+                server.hook_health_store.acknowledge_review()
+                server.hook_health_store.record_success("session_start")
+                health_path = root / "system" / "hook-health" / "session_start.json"
+                review_path = root / "system" / "hook-health" / "review.json"
+                for path in (health_path, review_path):
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    payload["plugin_version"] = "0.7.0-dev.4"
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/hook-health",
+                    token="test-panel-token",
+                )
+                payload = json.loads(body)
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(payload["hook_health"]["session_start"]["state"], "stale")
+            self.assertEqual(payload["hook_health"]["review"]["state"], "stale")
+            self.assertEqual(payload["runtime_readiness"]["state"], "review_required")
+
+    def test_face_confirmed_after_session_receipt_requires_a_new_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                server.installer.install("codex")
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                server.hook_health_store.record_success("session_start")
+                assets = ImageAssetStore(root / "private" / "images")
+                candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(),
+                    task_scope="newer-face",
+                )
+                primary = assets.confirm_candidate(
+                    candidate_id=candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="newer-face",
+                )
+                server.store.bind_reference(
+                    reference_id=primary.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+
+                response, body = request(
+                    server,
+                    "GET",
+                    "/api/hook-health",
+                    token="test-panel-token",
+                )
+                payload = json.loads(body)
+
+            self.assertEqual(response.status, 200)
+            self.assertTrue(payload["hook_health"]["session_start"]["verified"])
+            self.assertFalse(payload["runtime_readiness"]["session_loaded"])
+            self.assertEqual(
+                payload["runtime_readiness"]["state"],
+                "verification_pending",
+            )
+
+    def test_hook_review_and_install_do_not_overwrite_existing_persona_or_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, profile_path):
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                assets = ImageAssetStore(root / "private" / "images")
+                candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(),
+                    task_scope="preserved-primary",
+                )
+                primary = assets.confirm_candidate(
+                    candidate_id=candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="preserved-primary",
+                )
+                server.store.bind_reference(
+                    reference_id=primary.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+                relationship_path = root / "private" / "relationships.sqlite3"
+                relationship_path.write_bytes(b"important-relationship-history")
+                before_profile = profile_path.read_bytes()
+                before_image = primary.path.read_bytes()
+                before_relationship = relationship_path.read_bytes()
+
+                server.installer.install("codex")
+                origin = f"http://127.0.0.1:{server.server_port}"
+                request(
+                    server,
+                    "POST",
+                    "/api/hooks/reviewed",
+                    token="test-panel-token",
+                    origin=origin,
+                    body={"confirm": True},
+                )
+
+            self.assertEqual(profile_path.read_bytes(), before_profile)
+            self.assertEqual(primary.path.read_bytes(), before_image)
+            self.assertEqual(relationship_path.read_bytes(), before_relationship)
 
     def test_state_shows_identity_pack_summary_without_private_identifiers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

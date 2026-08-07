@@ -15,6 +15,7 @@ from companion_kit.codex_image_receipts import (
     extract_codex_generated_paths,
 )
 from companion_kit.initializer import initialize_profile
+from companion_kit.hook_health import HookHealthStore, POST_TOOL_USE
 from tests.png_fixture import tiny_png
 
 
@@ -179,6 +180,11 @@ class CodexImageReceiptTests(unittest.TestCase):
                     source_path=image,
                 )
             self.assertEqual(consumed, tiny_png())
+            health = HookHealthStore(
+                root=companion_home / "system" / "hook-health",
+                plugin_root=PROJECT_ROOT,
+            ).status(POST_TOOL_USE)
+            self.assertTrue(health.verified)
 
     def test_post_tool_hook_rejects_non_image_tool_when_called_directly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -236,6 +242,11 @@ class CodexImageReceiptTests(unittest.TestCase):
                         session_id="hook-current-task",
                         source_path=image,
                     )
+                health = HookHealthStore(
+                    root=companion_home / "system" / "hook-health",
+                    plugin_root=PROJECT_ROOT,
+                ).status(POST_TOOL_USE)
+                self.assertFalse(health.verified)
 
     def test_path_extraction_ignores_data_urls_and_unrelated_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

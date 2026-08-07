@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import secrets
+from threading import Lock
+import time
 from typing import Mapping
 from urllib.parse import urlsplit
 import webbrowser
@@ -13,6 +16,7 @@ from . import __version__
 from .backup import BackupError, BackupManager, CompanionDataLayout
 from .codex_upgrade import CodexUpgradeExecutor
 from .host_install import HostInstaller
+from .hook_health import HookHealthError, HookHealthStore, version_base
 from .identity_pack import PRIMARY_FACE
 from .identity_workflow import (
     IdentityConfirmationRetry,
@@ -46,6 +50,7 @@ _INSTALL_KEYS = {"host", "confirm"}
 _BACKUP_KEYS = {"confirm"}
 _UPGRADE_APPLY_KEYS = {"confirm"}
 _IDENTITY_CONFIRM_KEYS = {"candidate_id", "profile_version", "confirm"}
+_HOOK_REVIEW_KEYS = {"confirm"}
 _MAX_BODY_BYTES = 24 * 1024
 _MAX_IMAGE_BODY_BYTES = 12 * 1024 * 1024
 
@@ -75,6 +80,7 @@ class CompanionPanelServer(ThreadingHTTPServer):
         backup_manager: BackupManager,
         upgrade_planner: CodexUpgradePlanner,
         upgrade_executor: CodexUpgradeExecutor,
+        hook_health_store: HookHealthStore,
         nonce: str,
     ) -> None:
         self.stores = dict(stores)
@@ -83,8 +89,33 @@ class CompanionPanelServer(ThreadingHTTPServer):
         self.backup_manager = backup_manager
         self.upgrade_planner = upgrade_planner
         self.upgrade_executor = upgrade_executor
+        self.hook_health_store = hook_health_store
+        self._plugin_status_lock = Lock()
+        self._plugin_status_cache: tuple[float, tuple[object, ...], dict[str, object]] | None = None
         self.panel_nonce = nonce
         super().__init__(server_address, CompanionPanelHandler)
+
+    def cached_plugin_status(
+        self,
+        key: tuple[object, ...],
+    ) -> dict[str, object] | None:
+        with self._plugin_status_lock:
+            cached = self._plugin_status_cache
+            if cached is None or cached[1] != key or time.monotonic() - cached[0] > 20:
+                return None
+            return dict(cached[2])
+
+    def remember_plugin_status(
+        self,
+        key: tuple[object, ...],
+        status: dict[str, object],
+    ) -> None:
+        with self._plugin_status_lock:
+            self._plugin_status_cache = (time.monotonic(), key, dict(status))
+
+    def invalidate_plugin_status(self) -> None:
+        with self._plugin_status_lock:
+            self._plugin_status_cache = None
 
     @property
     def origin(self) -> str:
@@ -197,6 +228,189 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
     def _identity_scope(self) -> str:
         return f"web-panel:{self.server.panel_nonce}"
 
+    def _plugin_status(self, plan) -> dict[str, object]:
+        key = (
+            getattr(plan, "method", None),
+            getattr(plan, "existing", None),
+            __version__,
+        )
+        cached = self.server.cached_plugin_status(key)
+        if cached is not None:
+            return cached
+        if plan is None:
+            status = {
+                "known": False,
+                "installed": False,
+                "enabled": False,
+                "installed_version": None,
+                "current": False,
+            }
+            self.server.remember_plugin_status(key, status)
+            return status
+        if plan.method != "codex_plugin":
+            installed = plan.existing is True
+            status = {
+                "known": True,
+                "installed": installed,
+                "enabled": installed,
+                "installed_version": __version__ if installed else None,
+                "current": installed,
+            }
+            self.server.remember_plugin_status(key, status)
+            return status
+        try:
+            check = self.server.upgrade_planner.check()
+        except (UpgradeError, BackupError):
+            status = {
+                "known": False,
+                "installed": False,
+                "enabled": False,
+                "installed_version": None,
+                "current": False,
+            }
+            self.server.remember_plugin_status(key, status)
+            return status
+        installed_version = check.installed_version
+        status = {
+            "known": True,
+            "installed": check.plugin_installed,
+            "enabled": check.plugin_enabled,
+            "installed_version": installed_version,
+            "current": bool(
+                check.plugin_installed
+                and installed_version
+                and version_base(installed_version) == version_base(__version__)
+            ),
+        }
+        self.server.remember_plugin_status(key, status)
+        return status
+
+    @staticmethod
+    def _session_loaded(
+        hook_health: dict[str, object],
+        *,
+        material_modified_at: float | None,
+    ) -> bool:
+        session = hook_health.get("session_start")
+        if not isinstance(session, dict) or session.get("verified") is not True:
+            return False
+        if material_modified_at is None:
+            return True
+        last_success_at = session.get("last_success_at")
+        if not isinstance(last_success_at, str):
+            return False
+        try:
+            loaded_at = datetime.fromisoformat(last_success_at)
+        except ValueError:
+            return False
+        if loaded_at.tzinfo is None:
+            return False
+        return loaded_at.timestamp() >= material_modified_at
+
+    def _runtime_readiness(
+        self,
+        *,
+        plugin: dict[str, object],
+        profile: dict[str, object] | None,
+        identity_pack: dict[str, object],
+        hook_health: dict[str, object],
+        material_modified_at: float | None,
+    ) -> dict[str, object]:
+        session = hook_health.get("session_start")
+        review = hook_health.get("review")
+        post_tool = hook_health.get("post_tool_use")
+        session_verified = bool(
+            isinstance(session, dict) and session.get("verified") is True
+        )
+        review_acknowledged = bool(
+            isinstance(review, dict) and review.get("acknowledged") is True
+        )
+        post_tool_verified = bool(
+            isinstance(post_tool, dict) and post_tool.get("verified") is True
+        )
+        session_loaded = self._session_loaded(
+            hook_health,
+            material_modified_at=material_modified_at,
+        )
+        reference_saved = identity_pack.get("ready") is True
+        persona_configured = profile is not None
+
+        state = "ready"
+        ready = False
+        detail = ""
+        if plugin.get("known") is not True:
+            state = "installation_unknown"
+            summary = "暂时无法核对 Companion Kit Plugin 安装状态"
+            detail = "请确认 Codex 可以正常运行，再刷新面板。"
+        elif plugin.get("installed") is not True:
+            state = "uninstalled"
+            summary = "Companion Kit Plugin 尚未安装"
+            detail = "先安装 Plugin；安装成功不等于 Hooks 已经可以运行。"
+        elif plugin.get("enabled") is not True:
+            state = "plugin_disabled"
+            summary = "Companion Kit Plugin 已安装，但目前处于停用状态"
+            detail = "请先在 Codex 的 Plugin 管理界面启用它。"
+        elif plugin.get("current") is not True:
+            state = "update_required"
+            summary = "Plugin 版本已经变化，需要先更新"
+            detail = "更新不会覆盖 Persona、关系数据或参考图；更新后需要重新审核 Hooks。"
+        elif not session_verified:
+            if review_acknowledged:
+                state = "verification_pending"
+                summary = (
+                    "参考图已保存，但新任务尚未加载"
+                    if reference_saved
+                    else "Hooks 已审核，等待新任务运行验证"
+                )
+                detail = "新建一个 Codex 任务；SessionStart 真正运行后，面板会自动变绿。"
+            else:
+                state = "review_required"
+                summary = (
+                    "参考图已保存，但新任务尚未加载"
+                    if reference_saved
+                    else "Plugin 已安装，等待你审核 Hooks"
+                )
+                detail = "在 Codex 输入 /hooks，逐项审核 Companion Kit 的两个 Hooks。"
+        elif not session_loaded:
+            state = "verification_pending"
+            summary = (
+                "参考图已保存，但新任务尚未加载"
+                if reference_saved
+                else "Persona 已更新，等待新任务重新加载"
+            )
+            detail = "Hooks 已经运行过；请新建一个 Codex 任务加载当前 Persona 与主脸。"
+        elif not persona_configured:
+            state = "persona_required"
+            summary = "SessionStart 已验证，尚未保存 Persona"
+            detail = "先在面板保存 Persona，再新建一个 Codex 任务。"
+        elif identity_pack.get("level") == "unset":
+            state = "primary_face_required"
+            summary = "Persona 已成功加载，尚未固定主脸"
+            detail = "可以先聊天和解决问题；要固定人物照片时再上传或生成候选。"
+        elif not reference_saved:
+            state = "identity_unavailable"
+            summary = "参考图已保存，但当前无法安全加载"
+            detail = "无需重新上传；先检查现有 Identity Pack 的健康状态。"
+        else:
+            ready = True
+            summary = "Persona 与主脸已成功加载"
+            detail = "现在新任务中的人物照片会使用已确认的身份参考。"
+
+        return {
+            "state": state,
+            "ready": ready,
+            "summary": summary,
+            "detail": detail,
+            "plugin_installed": plugin.get("installed") is True,
+            "plugin_enabled": plugin.get("enabled") is True,
+            "plugin_current": plugin.get("current") is True,
+            "persona_configured": persona_configured,
+            "reference_saved": reference_saved,
+            "session_hook_verified": session_verified,
+            "session_loaded": session_loaded,
+            "post_tool_verified": post_tool_verified,
+        }
+
     def _state_payload(self) -> dict[str, object]:
         snapshot = None
         try:
@@ -207,20 +421,31 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             profile = None
             profile_error = _safe_error(exc, "本地 Persona 无法安全读取")
 
+        plan = None
         try:
-            hosts = [self.server.installer.plan("codex").to_dict()]
+            plan = self.server.installer.plan("codex")
+            host = plan.to_dict()
         except InstallError as exc:
-            hosts = [
-                {
-                    "host": "codex",
-                    "name": "Codex",
-                    "available": False,
-                    "existing": None,
-                    "error": _safe_error(exc, "Codex 安装方案无法安全生成"),
-                }
-            ]
+            host = {
+                "host": "codex",
+                "name": "Codex",
+                "available": False,
+                "existing": None,
+                "error": _safe_error(exc, "Codex 安装方案无法安全生成"),
+            }
+        plugin_status = self._plugin_status(plan)
+        host["existing"] = (
+            plugin_status["installed"] if plugin_status["known"] else None
+        )
+        hosts = [host]
 
         identity_pack: dict[str, object]
+        material_modified_at: float | None = None
+        if snapshot is not None:
+            try:
+                material_modified_at = self.server.store.profile_path.stat().st_mtime
+            except OSError:
+                material_modified_at = None
         if not profile or profile["visual"]["reference_count"] != 1:
             identity_pack = {
                 "level": "unset",
@@ -252,12 +477,43 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                         "count": 0,
                     }
                 else:
+                    member_modified_at = []
+                    for member in resolved_pack.members:
+                        try:
+                            member_modified_at.append(member.path.stat().st_mtime)
+                        except OSError:
+                            member_modified_at = []
+                            break
+                    if member_modified_at:
+                        material_modified_at = max(
+                            [material_modified_at or 0.0, *member_modified_at]
+                        )
                     identity_pack = {
                         "level": "enhanced" if len(resolved_pack.members) > 1 else "basic",
                         "ready": True,
                         "roles": list(resolved_pack.roles),
                         "count": len(resolved_pack.members),
                     }
+
+        hook_health = self.server.hook_health_store.snapshot()
+        runtime_readiness = self._runtime_readiness(
+            plugin=plugin_status,
+            profile=profile,
+            identity_pack=identity_pack,
+            hook_health=hook_health,
+            material_modified_at=material_modified_at,
+        )
+
+        if identity_pack.get("ready") is True:
+            identity_status = (
+                "主脸已成功加载"
+                if runtime_readiness["session_loaded"]
+                else "参考图已保存，新任务尚未加载"
+            )
+        elif bool(profile and profile["visual"]["reference_count"] == 1):
+            identity_status = "参考图已保存，但当前无法安全读取"
+        else:
+            identity_status = "尚未确认主脸"
 
         photo_modes = {
             "codex_native": {
@@ -267,7 +523,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             },
             "identity_reuse": {
                 "title": "固定形象复用",
-                "status": "本地链路已就绪，等待真实 Codex 验收",
+                "status": identity_status,
                 "description": "主脸只在你明确确认后固定；侧脸和体型可以按需补充，新任务会按场景选择一到两张参考，不需要 API Key。",
             },
             "identity_pack": identity_pack,
@@ -285,6 +541,8 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             "profile": profile,
             "profile_error": profile_error,
             "photo_modes": photo_modes,
+            "hook_health": hook_health,
+            "runtime_readiness": runtime_readiness,
             "hosts": hosts,
         }
 
@@ -304,6 +562,20 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                     500,
                     {"error": _safe_error(exc, "面板无法读取内置模板")},
                 )
+            return
+
+        if path == "/api/hook-health":
+            if not self._authenticated():
+                self._send_json(401, {"error": "面板授权已失效，请重新启动"})
+                return
+            payload = self._state_payload()
+            self._send_json(
+                200,
+                {
+                    "hook_health": payload["hook_health"],
+                    "runtime_readiness": payload["runtime_readiness"],
+                },
+            )
             return
 
         if path == "/api/backups":
@@ -390,6 +662,9 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         if path == "/api/install":
             self._install_host(payload)
             return
+        if path == "/api/hooks/reviewed":
+            self._acknowledge_hooks_reviewed(payload)
+            return
         if path == "/api/backups":
             self._create_backup(payload)
             return
@@ -433,6 +708,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                 {"error": _safe_error(exc, "升级没有完成，现有用户数据没有被覆盖")},
             )
             return
+        self.server.invalidate_plugin_status()
         self._send_json(200, {"upgrade": result.to_dict()})
 
     def _stage_identity_candidate(self) -> None:
@@ -666,6 +942,38 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             return
         self._send_json(200, {"draft": draft.to_dict()})
 
+    def _acknowledge_hooks_reviewed(self, payload: dict[str, object]) -> None:
+        if set(payload) - _HOOK_REVIEW_KEYS:
+            self._send_json(400, {"error": "Hook 审核确认包含不允许的字段"})
+            return
+        if payload.get("confirm") is not True:
+            self._send_json(409, {"error": "请先在 Codex 的 /hooks 中完成真实审核"})
+            return
+        before = self._state_payload()
+        readiness = before["runtime_readiness"]
+        if not isinstance(readiness, dict) or not all(
+            readiness.get(key) is True
+            for key in ("plugin_installed", "plugin_enabled", "plugin_current")
+        ):
+            self._send_json(409, {"error": "请先安装或更新并启用 Companion Kit Plugin"})
+            return
+        try:
+            self.server.hook_health_store.acknowledge_review()
+        except HookHealthError as exc:
+            self._send_json(
+                409,
+                {"error": _safe_error(exc, "Hook 审核进度无法安全保存")},
+            )
+            return
+        after = self._state_payload()
+        self._send_json(
+            200,
+            {
+                "hook_health": after["hook_health"],
+                "runtime_readiness": after["runtime_readiness"],
+            },
+        )
+
     def _install_host(self, payload: dict[str, object]) -> None:
         if set(payload) - _INSTALL_KEYS:
             self._send_json(400, {"error": "安装请求包含不允许的字段"})
@@ -685,6 +993,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                 {"error": _safe_error(exc, "宿主安装失败，请检查本机环境")},
             )
             return
+        self.server.invalidate_plugin_status()
         self._send_json(200, {"install": result.to_dict()})
 
 
@@ -722,6 +1031,10 @@ def create_panel_server(
         upgrade_executor=CodexUpgradeExecutor(
             planner=upgrade_planner,
             backups=backup_manager,
+        ),
+        hook_health_store=HookHealthStore(
+            root=layout.system_root / "hook-health",
+            plugin_root=root.parents[1],
         ),
         nonce=token,
     )

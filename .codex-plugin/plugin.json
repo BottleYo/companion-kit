@@ -1,6 +1,6 @@
 {
   "name": "companion-kit",
-  "version": "0.7.0-dev.5",
+  "version": "0.7.0-dev.6",
   "description": "一次本地初始化后，在 Codex 中自然聊天、继续解决问题，并为可确认的固定脸部身份提供照片复用链路。",
   "author": {
     "name": "Companion Kit contributors",

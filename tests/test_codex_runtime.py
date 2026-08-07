@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from companion_kit.codex_runtime import load_codex_runtime_context
+from companion_kit.hook_health import HookHealthStore, SESSION_START
 from companion_kit.identity_pack import BODY_SHAPE, PROFILE_FACE
 from companion_kit.initializer import initialize_profile
 from companion_kit.image_assets import ImageAssetStore
@@ -153,6 +154,11 @@ class CodexRuntimeTests(unittest.TestCase):
             self.assertIn("阿序", context)
             self.assertIn("generated_images", context)
             self.assertNotIn(private_marker, completed.stdout)
+            health = HookHealthStore(
+                root=home / "system" / "hook-health",
+                plugin_root=PROJECT_ROOT,
+            ).status(SESSION_START)
+            self.assertTrue(health.verified)
 
     def test_hook_without_profile_has_no_visible_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -178,7 +184,12 @@ class CodexRuntimeTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0)
             self.assertEqual(completed.stdout, "")
             self.assertEqual(completed.stderr, "")
-            self.assertFalse(home.exists())
+            self.assertFalse((home / "profiles" / "default.toml").exists())
+            health = HookHealthStore(
+                root=home / "system" / "hook-health",
+                plugin_root=PROJECT_ROOT,
+            ).status(SESSION_START)
+            self.assertTrue(health.verified)
 
     def test_locked_identity_exposes_private_reference_only_to_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

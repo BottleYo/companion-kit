@@ -87,7 +87,7 @@
 
 ## 阶段 4：Codex 自然体验闭环（当前 P0）
 
-当前进度：`0.7.0-dev.5` 已完成完整 Plugin 安装、安静的 `SessionStart` Persona 加载、一句话 Persona v3 草稿、面板参考图上传、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack、跨任务取回和本地 Codex 安全升级。升级会先校验用户恢复点和旧程序快照，再切换 Plugin；即时健康检查失败时只恢复旧程序。Codex Plugin 不再暴露独立 Skill，也不检查或改动用户级 Skill 目录。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
+当前进度：`0.7.0-dev.6` 已完成完整 Plugin 安装、Hook 审核引导与最小运行回执、安静的 `SessionStart` Persona 加载、一句话 Persona v3 草稿、面板参考图上传、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack、跨任务取回和本地 Codex 安全升级。面板不再把安装成功等同于运行就绪；只有当前 Persona、主脸和 `SessionStart` 均验证才显示可以使用。升级会先校验用户恢复点和旧程序快照，再切换 Plugin；版本或 Hook bundle 变化会让旧回执过期，但不会覆盖用户资料。Codex Plugin 不再暴露独立 Skill，也不检查或改动用户级 Skill 目录。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
 
 ### 4.1 一次性初始化
 
@@ -102,6 +102,8 @@
 
 - Codex 正常路径改为 Plugin + 本地轻量 Runtime，而不是以 Skill 作为每轮入口；
 - 使用 Codex 支持的生命周期上下文接入，在新任务开始时自动提供当前人格与关系投影；关系变化后的任务内刷新由后续本地工具返回；
+- Plugin 安装、用户审核确认、Hook 实际运行和 Persona/主脸加载分别建模；不读取或写入 Codex `trusted_hash`，只由用户在 `/hooks` 完成安全审核；
+- `SessionStart` 与真实图片 `PostToolUse` 分别写入无提示词、无任务 ID、无参考路径的最小健康回执；后者不阻塞已有主脸使用；
 - 使用最小本地命令提供候选暂存、角色确认和参考包状态，真实生图继续由 Codex 内置工具完成；聊天入口候选必须同时位于 Codex `generated_images` 且拥有当前任务图片工具的单次回执，面板入口只接收用户当次选择并清洗的图片字节；主脸确认后才允许逐张补充侧脸或体型；
 - Codex 的配置诊断改走本地面板或 CLI；`$virtual-companion` 只保留给其他宿主兼容，不进入 Codex Plugin；
 - 人格只改变对用户的表达方式，不替代 Codex 的任务规划、代码能力、事实标准和安全规则。

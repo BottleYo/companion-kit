@@ -611,14 +611,20 @@ def main(argv: list[str] | None = None) -> int:
             if args.json:
                 print(json.dumps(payload, ensure_ascii=False, indent=2))
             else:
-                print("\n✅ 配置完成")
+                print(
+                    "\n✅ Persona 已保存"
+                    if args.host == "codex"
+                    else "\n✅ 配置完成"
+                )
                 print(f"风格：{result.template.name}")
                 print(f"称呼：{result.profile.display_name}")
                 print(f"保存位置：{result.output}")
                 print(
                     "\n下一步："
                     + (
-                        "安装完整 Codex Plugin，然后开一个新任务直接聊天。"
+                        "安装完整 Codex Plugin，在 Codex 输入 /hooks，"
+                        "亲自审核 SessionStart 和图片工具专用 PostToolUse；"
+                        "随后新建任务，并以面板的运行验证结果为准。"
                         if args.host == "codex"
                         else "在新会话中显式启用 virtual-companion。"
                     )

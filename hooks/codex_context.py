@@ -15,6 +15,16 @@ def _plugin_root() -> Path:
     return Path(configured).resolve() if configured else Path(__file__).resolve().parents[1]
 
 
+def _record_session_start_health() -> None:
+    try:
+        from companion_kit.hook_health import HookHealthStore, SESSION_START
+
+        HookHealthStore(plugin_root=_plugin_root()).record_success(SESSION_START)
+    except Exception:
+        # 健康回执只服务管理面板，写入失败不能吞掉 Persona 上下文。
+        return
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -27,6 +37,7 @@ def main() -> int:
 
         runtime = load_codex_runtime_context()
         if runtime is None:
+            _record_session_start_health()
             return 0
         result = {
             "hookSpecificOutput": {
@@ -43,6 +54,7 @@ def main() -> int:
                 ),
             }
         }
+        _record_session_start_health()
         sys.stdout.write(json.dumps(result, ensure_ascii=False))
     except Exception:
         # 日常对话不能被可选人格层阻断；诊断留给显式入口和管理面板。
