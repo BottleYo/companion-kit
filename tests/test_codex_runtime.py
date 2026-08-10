@@ -62,18 +62,15 @@ class CodexRuntimeTests(unittest.TestCase):
             self.assertIn("用户对这个人物的原始期待", rendered)
             self.assertIn("完整使用 Codex 原有能力", rendered)
             self.assertIn("允许恋爱发展不等于已经是恋人", rendered)
-            self.assertIn("更有个人感的日常照", rendered)
-            self.assertIn("直接使用 Codex 内置图片生成能力", rendered)
-            self.assertIn("不要检查或索要 OPENAI_API_KEY", rendered)
-            self.assertIn("上传一张有权使用的虚构成年人或成年人物参考图", rendered)
-            self.assertIn("确认之前只把它当候选原型", rendered)
-            self.assertIn("发型、表情、妆容、服饰、姿势和场景可以变化", rendered)
             self.assertIn("代码正确性、测试和用户的技术要求优先", rendered)
+            self.assertNotIn("referenced_image_paths", rendered)
+            self.assertNotIn("identity stage-native", rendered)
+            self.assertNotIn("OPENAI_API_KEY", rendered)
             self.assertNotIn("修改 Codex 全局个性化", rendered)
             self.assertNotIn(str(home), rendered)
-            self.assertLessEqual(len(rendered), 3_000)
+            self.assertLessEqual(len(rendered), 1_400)
 
-    def test_maximum_persona_cannot_evict_identity_or_task_safety_rules(self) -> None:
+    def test_maximum_persona_keeps_session_context_small_and_task_safe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp).resolve() / "companion-home"
             with patch.dict(os.environ, {"COMPANION_HOME": str(home)}, clear=True):
@@ -105,12 +102,38 @@ class CodexRuntimeTests(unittest.TestCase):
                 task_scope="codex-max-persona-task",
             )
 
-            self.assertLessEqual(len(rendered), 3_000)
-            self.assertIn("identity stage-native", rendered)
-            self.assertIn("identity confirm", rendered)
+            self.assertLessEqual(len(rendered), 1_400)
             self.assertIn("代码正确性、测试和用户的技术要求优先", rendered)
-            self.assertIn("不要检查或索要 OPENAI_API_KEY", rendered)
-            self.assertIn("没有当前任务图片工具回执时停止", rendered)
+            self.assertNotIn("identity stage-native", rendered)
+            self.assertNotIn("generated_images", rendered)
+
+    def test_session_context_keeps_later_persona_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "companion-home"
+            with patch.dict(os.environ, {"COMPANION_HOME": str(home)}, clear=True):
+                initialize_profile(
+                    skill_root=SKILL_ROOT,
+                    template_id="warm_healer",
+                    display_name="小禾",
+                )
+                runtime = load_codex_runtime_context()
+
+            bounded = replace(
+                runtime,
+                profile=replace(
+                    runtime.profile,
+                    boundaries=(
+                        "不编造共同经历",
+                        "不替用户做高风险决定",
+                        "不把关系等级告诉用户",
+                        "用户说停时立即停止暧昧表达",
+                    ),
+                ),
+            )
+            rendered = bounded.render()
+
+            self.assertIn("用户说停时立即停止暧昧表达", rendered)
+            self.assertLessEqual(len(rendered), 1_400)
 
     def test_hook_ignores_unrelated_input_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -152,8 +175,10 @@ class CodexRuntimeTests(unittest.TestCase):
             output = json.loads(completed.stdout)
             context = output["hookSpecificOutput"]["additionalContext"]
             self.assertIn("阿序", context)
-            self.assertIn("generated_images", context)
+            self.assertNotIn("generated_images", context)
+            self.assertNotIn("referenced_image_paths", context)
             self.assertNotIn(private_marker, completed.stdout)
+            self.assertLessEqual(len(context), 1_400)
             health = HookHealthStore(
                 root=home / "system" / "hook-health",
                 plugin_root=PROJECT_ROOT,
@@ -226,11 +251,25 @@ class CodexRuntimeTests(unittest.TestCase):
                     control_path=SKILL_ROOT / "scripts" / "companionctl.py",
                     task_scope="codex-task-two",
                 )
+                photo_rendered = runtime.render_photo(
+                    mode="new",
+                    turn_token="ckp_" + "a" * 24,
+                    control_path=SKILL_ROOT / "scripts" / "companionctl.py",
+                    task_scope="codex-task-two",
+                )
+                runtime.identity_reference.unlink()
+                session_runtime = load_codex_runtime_context(include_identity=False)
+                session_rendered = session_runtime.render()
 
-            self.assertIn(str(runtime.identity_reference), rendered)
-            self.assertIn("referenced_image_paths", rendered)
-            self.assertIn("唯一身份参考包", rendered)
-            self.assertIn("不要检查或索要 OPENAI_API_KEY", rendered)
+            self.assertNotIn(str(runtime.identity_reference), rendered)
+            self.assertNotIn("referenced_image_paths", rendered)
+            self.assertIn(str(runtime.identity_reference), photo_rendered)
+            self.assertIn("referenced_image_paths", photo_rendered)
+            self.assertIn("唯一身份参考包", photo_rendered)
+            self.assertNotIn("OPENAI_API_KEY", photo_rendered)
+            self.assertFalse(session_runtime.identity_reference_error)
+            self.assertIn("小禾", session_rendered)
+            self.assertNotIn("暂停拍照", session_rendered)
 
     def test_runtime_exposes_verified_pack_roles_and_fails_closed_as_one_unit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -295,16 +334,24 @@ class CodexRuntimeTests(unittest.TestCase):
                     control_path=SKILL_ROOT / "scripts" / "companionctl.py",
                     task_scope="next-task",
                 )
+                photo_rendered = runtime.render_photo(
+                    mode="new",
+                    turn_token="ckp_" + "b" * 24,
+                    control_path=SKILL_ROOT / "scripts" / "companionctl.py",
+                    task_scope="next-task",
+                )
 
                 self.assertIn(str(primary.reference_id), str(runtime.identity_pack.primary_reference_id))
-                self.assertIn(str(side.path), rendered)
-                self.assertIn(str(body.path), rendered)
-                self.assertIn("主脸", rendered)
-                self.assertIn("侧脸", rendered)
-                self.assertIn("体型", rendered)
-                self.assertIn("最多使用两张", rendered)
-                self.assertIn("全身", rendered)
-                self.assertLessEqual(len(rendered), 3_000)
+                self.assertNotIn(str(side.path), rendered)
+                self.assertNotIn(str(body.path), rendered)
+                self.assertIn(str(side.path), photo_rendered)
+                self.assertIn(str(body.path), photo_rendered)
+                self.assertIn("主脸", photo_rendered)
+                self.assertIn("侧脸", photo_rendered)
+                self.assertIn("体型", photo_rendered)
+                self.assertIn("最多使用两张", photo_rendered)
+                self.assertIn("全身", photo_rendered)
+                self.assertLessEqual(len(rendered), 1_400)
 
                 repeated = "细腻但不复述标签" * 100
                 crowded = replace(
@@ -322,17 +369,22 @@ class CodexRuntimeTests(unittest.TestCase):
                         visual=replace(runtime.profile.visual, appearance=repeated),
                     ),
                 )
-                crowded_rendered = crowded.render(
+                crowded_rendered = crowded.render_photo(
+                    mode="new",
+                    turn_token="ckp_" + "c" * 24,
                     control_path=SKILL_ROOT / "scripts" / "companionctl.py",
                     task_scope="next-task",
                 )
-                self.assertLessEqual(len(crowded_rendered), 3_000)
+                self.assertLessEqual(len(crowded_rendered), 3_200)
                 self.assertIn("最多使用两张", crowded_rendered)
-                self.assertIn("如果图片工具没有实际接收", crowded_rendered)
+                self.assertIn("图片工具没有真正接收", crowded_rendered)
 
                 side.path.unlink()
                 broken = load_codex_runtime_context()
-                broken_rendered = broken.render()
+                broken_rendered = broken.render_photo(
+                    mode="new",
+                    turn_token="ckp_" + "d" * 24,
+                )
 
             self.assertTrue(broken.identity_reference_error)
             self.assertIn("暂停", broken_rendered)

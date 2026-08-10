@@ -35,6 +35,7 @@ _RECEIPT_KEYS = {
 }
 _ROOT_KEYS = {"schema_version", "session_digest", "receipts"}
 _MAX_RECEIPTS = 12
+_MAX_RECEIPT_IMAGE_BYTES = 25 * 1024 * 1024
 _DEFAULT_TTL = timedelta(hours=2)
 
 
@@ -61,9 +62,12 @@ def _safe_generated_file(raw_path: str | Path) -> tuple[Path, bytes, bytes]:
     except ValueError as exc:
         raise CodexImageReceiptError("图片结果不在 Codex generated_images 中") from exc
     try:
-        mode = path.lstat().st_mode
+        details = path.lstat()
+        mode = details.st_mode
         if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
             raise CodexImageReceiptError("Codex 图片结果必须是普通文件")
+        if details.st_size <= 0 or details.st_size > _MAX_RECEIPT_IMAGE_BYTES:
+            raise CodexImageReceiptError("Codex 图片结果大小超出限制")
         raw = path.read_bytes()
         sanitized, _, _ = sanitize_png(raw)
     except CodexImageReceiptError:
@@ -133,11 +137,19 @@ class CodexImageReceiptStore:
         *,
         clock=None,
         ttl: timedelta = _DEFAULT_TTL,
+        lock_timeout: float = 5.0,
     ) -> None:
+        try:
+            normalized_timeout = float(lock_timeout)
+        except (TypeError, ValueError) as exc:
+            raise CodexImageReceiptError("图片回执锁等待时间无效") from exc
+        if not 0 < normalized_timeout <= 60:
+            raise CodexImageReceiptError("图片回执锁等待时间无效")
         self.root = _safe_absolute_path(root or default_codex_receipt_root())
         self._clock = clock or (lambda: datetime.now(UTC))
         self._ttl = ttl
         self._lock_path = self.root / ".receipts.lock"
+        self._lock_timeout = normalized_timeout
 
     def _path(self, session_digest: str) -> Path:
         return self.root / f"{session_digest}.json"
@@ -239,20 +251,26 @@ class CodexImageReceiptStore:
             )
         if not pending:
             return 0
+        recorded = 0
         try:
             _private_directory(self.root)
-            with exclusive_file_lock(self._lock_path):
+            with exclusive_file_lock(
+                self._lock_path,
+                timeout=self._lock_timeout,
+            ):
                 receipts = self._active(self._load(session_digest), now)
                 known = {(item["path_sha256"], item["raw_sha256"]) for item in receipts}
-                receipts.extend(
-                    item
-                    for item in pending
-                    if (item["path_sha256"], item["raw_sha256"]) not in known
-                )
+                for item in pending:
+                    key = (item["path_sha256"], item["raw_sha256"])
+                    if key in known:
+                        continue
+                    known.add(key)
+                    receipts.append(item)
+                    recorded += 1
                 self._save(session_digest, receipts)
         except (OSError, InterprocessLockError) as exc:
             raise CodexImageReceiptError("无法保存 Codex 图片回执") from exc
-        return len(pending)
+        return recorded
 
     def consume(self, *, session_id: str, source_path: str | Path) -> bytes:
         session_digest = _digest(session_id)
@@ -263,7 +281,10 @@ class CodexImageReceiptStore:
         now = self._now()
         try:
             _private_directory(self.root)
-            with exclusive_file_lock(self._lock_path):
+            with exclusive_file_lock(
+                self._lock_path,
+                timeout=self._lock_timeout,
+            ):
                 receipts = self._active(self._load(session_digest), now)
                 matched = next(
                     (
@@ -286,4 +307,50 @@ class CodexImageReceiptStore:
             raise
         except (OSError, InterprocessLockError) as exc:
             raise CodexImageReceiptError("无法核验 Codex 图片回执") from exc
+        return raw
+
+    def verify(self, *, session_id: str, source_path: str | Path) -> bytes:
+        """只读证明图片来自当前任务；明确编辑可以重复引用，不消费候选回执。"""
+
+        session_digest = _digest(session_id)
+        path, raw, sanitized = _safe_generated_file(source_path)
+        path_digest = sha256(str(path).encode("utf-8")).hexdigest()
+        raw_digest = sha256(raw).hexdigest()
+        pixel_digest = sha256(sanitized).hexdigest()
+        receipts = self._active(self._load(session_digest), self._now())
+        matched = any(
+            item["path_sha256"] == path_digest
+            and item["raw_sha256"] == raw_digest
+            and item["pixel_sha256"] == pixel_digest
+            for item in receipts
+        )
+        if not matched:
+            raise CodexImageReceiptError(
+                "上一张照片没有当前 Codex 任务的有效图片工具回执"
+            )
+        return raw
+
+    def verify_latest(self, *, session_id: str, source_path: str | Path) -> bytes:
+        """证明目标属于当前任务最近一次成功记录的图片工具调用。"""
+
+        session_digest = _digest(session_id)
+        path, raw, sanitized = _safe_generated_file(source_path)
+        path_digest = sha256(str(path).encode("utf-8")).hexdigest()
+        raw_digest = sha256(raw).hexdigest()
+        pixel_digest = sha256(sanitized).hexdigest()
+        receipts = self._active(self._load(session_digest), self._now())
+        if not receipts:
+            raise CodexImageReceiptError("当前 Codex 任务没有有效图片工具回执")
+        latest_tool_digest = receipts[-1]["tool_use_digest"]
+        matched = any(
+            item["tool_use_digest"] == latest_tool_digest
+            and item["path_sha256"] == path_digest
+            and item["raw_sha256"] == raw_digest
+            and item["pixel_sha256"] == pixel_digest
+            for item in receipts
+        )
+        if not matched:
+            raise CodexImageReceiptError(
+                "编辑目标不是当前 Codex 任务最近一次成功图片结果"
+            )
         return raw

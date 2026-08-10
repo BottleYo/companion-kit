@@ -370,7 +370,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                     if reference_saved
                     else "Plugin 已安装，等待你审核 Hooks"
                 )
-                detail = "在 Codex 输入 /hooks，逐项审核 Companion Kit 的两个 Hooks。"
+                detail = "在 Codex 输入 /hooks，逐项审核 Companion Kit 的四个 Hooks。"
         elif not session_loaded:
             state = "verification_pending"
             summary = (

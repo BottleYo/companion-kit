@@ -35,6 +35,7 @@ class CompanionDataLayout:
     profile_path: Path
     private_root: Path
     images_root: Path
+    photo_moments_root: Path
     relationship_database: Path
     backups_root: Path
     system_root: Path
@@ -63,6 +64,7 @@ class CompanionDataLayout:
             profile_path=profile_path,
             private_root=root / "private",
             images_root=root / "private" / "images",
+            photo_moments_root=root / "private" / "photo-moments",
             relationship_database=root / "private" / "relationships.sqlite3",
             backups_root=root / "backups",
             system_root=root / "system",
@@ -85,6 +87,7 @@ class CompanionDataLayout:
             profile_path=profile,
             private_root=root / "private",
             images_root=root / "private" / "images",
+            photo_moments_root=root / "private" / "photo-moments",
             relationship_database=root / "private" / "relationships.sqlite3",
             backups_root=root / "backups",
             system_root=root / "system",
@@ -207,6 +210,8 @@ def _kind_for(relative_path: str) -> str:
         return "persona"
     if relative_path == "private/relationships.sqlite3":
         return "relationship_database"
+    if relative_path.startswith("private/photo-moments/"):
+        return "photo_moment"
     return "identity_asset"
 
 
@@ -419,7 +424,17 @@ class BackupManager:
             data_root=self.layout.root,
             excluded_parts=("runtime",),
         )
-        return tuple(sorted((*profile_files, *image_files), key=lambda item: item.relative_path))
+        photo_moment_files = _iter_tree_files(
+            self.layout.photo_moments_root,
+            data_root=self.layout.root,
+            excluded_parts=("runtime",),
+        )
+        return tuple(
+            sorted(
+                (*profile_files, *image_files, *photo_moment_files),
+                key=lambda item: item.relative_path,
+            )
+        )
 
     def inspect(self) -> DataInventory:
         blockers: list[str] = []
@@ -608,6 +623,7 @@ class BackupManager:
                     "excluded_transient": [
                         "private/images/runtime",
                         "private/codex-image-receipts",
+                        "private/photo-moments/runtime",
                     ],
                     "items": sorted(items, key=lambda item: str(item["relative_path"])),
                 }

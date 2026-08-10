@@ -1,5 +1,5 @@
 {
-  "description": "在 Codex 新任务开始时安静加载本地陪伴人格，并记录当前任务图片工具的短期候选回执。",
+  "description": "安静加载轻量人格，只在人物照片回合补充身份与配方，并保护图片参考和短期回执。",
   "hooks": {
     "SessionStart": [
       {
@@ -9,6 +9,31 @@
             "command": "python3 \"${PLUGIN_ROOT}/hooks/codex_context.py\"",
             "timeout": 3,
             "additionalContextLimit": 3200
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/codex_prompt_context.py\"",
+            "timeout": 2,
+            "additionalContextLimit": 3400
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(?:image_gen__imagegen|mcp__image_gen__imagegen|imagegen)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/codex_image_guard.py\"",
+            "timeout": 3,
+            "additionalContextLimit": 900
           }
         ]
       }

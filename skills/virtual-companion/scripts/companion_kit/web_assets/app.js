@@ -999,7 +999,7 @@ elements.applyUpgrade.addEventListener("click", applyUpgrade);
 elements.copyHooksCommand.addEventListener("click", copyHooksCommand);
 elements.confirmHooksReviewed.addEventListener("click", async () => {
   const confirmed = window.confirm(
-    "这个按钮不会替你信任 Hook。请确认你已经回到 Codex，在 /hooks 中审核并信任 Companion Kit 的 SessionStart 和 PostToolUse。",
+    "这个按钮不会替你信任 Hook。请确认你已经回到 Codex，在 /hooks 中审核并信任 Companion Kit 的四个 Hooks。",
   );
   if (!confirmed) return;
   elements.confirmHooksReviewed.disabled = true;

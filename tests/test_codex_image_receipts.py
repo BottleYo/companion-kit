@@ -63,6 +63,86 @@ class CodexImageReceiptTests(unittest.TestCase):
                         source_path=image,
                     )
 
+    def test_current_task_edit_verification_is_read_only_and_session_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            codex_home = root / "codex-home"
+            image = codex_home / "generated_images" / "editable.png"
+            image.parent.mkdir(parents=True)
+            image.write_bytes(tiny_png())
+            store = CodexImageReceiptStore(root / "receipts")
+
+            with patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                store.record(
+                    session_id="current-task",
+                    tool_use_id="image-call",
+                    paths=(image,),
+                )
+
+                self.assertEqual(
+                    store.verify(session_id="current-task", source_path=image),
+                    tiny_png(),
+                )
+                self.assertEqual(
+                    store.verify(session_id="current-task", source_path=image),
+                    tiny_png(),
+                )
+                with self.assertRaises(CodexImageReceiptError):
+                    store.verify(session_id="another-task", source_path=image)
+
+                image.write_bytes(tiny_png(metadata=b"changed-after-verification"))
+                with self.assertRaises(CodexImageReceiptError):
+                    store.verify(session_id="current-task", source_path=image)
+
+    def test_latest_verification_tracks_latest_success_and_duplicate_is_not_new(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            codex_home = root / "codex-home"
+            first = codex_home / "generated_images" / "first.png"
+            second = codex_home / "generated_images" / "second.png"
+            first.parent.mkdir(parents=True)
+            first.write_bytes(tiny_png(metadata=b"first"))
+            second.write_bytes(tiny_png(metadata=b"second"))
+            store = CodexImageReceiptStore(root / "receipts")
+
+            with patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                self.assertEqual(
+                    store.record(
+                        session_id="current-task",
+                        tool_use_id="first-call",
+                        paths=(first,),
+                    ),
+                    1,
+                )
+                self.assertEqual(
+                    store.record(
+                        session_id="current-task",
+                        tool_use_id="first-call",
+                        paths=(first,),
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    store.record(
+                        session_id="current-task",
+                        tool_use_id="second-call",
+                        paths=(second,),
+                    ),
+                    1,
+                )
+                self.assertEqual(
+                    store.verify_latest(
+                        session_id="current-task",
+                        source_path=second,
+                    ),
+                    second.read_bytes(),
+                )
+                with self.assertRaises(CodexImageReceiptError):
+                    store.verify_latest(
+                        session_id="current-task",
+                        source_path=first,
+                    )
+
     def test_old_or_other_task_image_cannot_be_staged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()

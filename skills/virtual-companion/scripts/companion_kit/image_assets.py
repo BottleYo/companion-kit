@@ -522,7 +522,14 @@ class ImageAssetStore:
         *,
         forbidden_roots: Iterable[str | Path] = (),
         clock: Callable[[], datetime] | None = None,
+        lock_timeout: float = 5.0,
     ) -> None:
+        try:
+            normalized_timeout = float(lock_timeout)
+        except (TypeError, ValueError) as exc:
+            raise ImageAssetError("图片资产锁等待时间无效") from exc
+        if not 0 < normalized_timeout <= 60:
+            raise ImageAssetError("图片资产锁等待时间无效")
         self.root = _safe_absolute_path(root)
         for raw_forbidden in forbidden_roots:
             forbidden = _safe_absolute_path(raw_forbidden)
@@ -530,6 +537,7 @@ class ImageAssetStore:
                 raise ImageAssetError("图片资产必须保存在发行项目之外")
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lock_path = self.root / ".assets.lock"
+        self._lock_timeout = normalized_timeout
 
     def _profile_root(self, profile_id: str, identity_version: int) -> Path:
         _validate_profile(profile_id, identity_version)
@@ -557,7 +565,7 @@ class ImageAssetStore:
     def _locked(self):
         _private_directory(self.root)
         _safe_absolute_path(self._lock_path)
-        return exclusive_file_lock(self._lock_path)
+        return exclusive_file_lock(self._lock_path, timeout=self._lock_timeout)
 
     def _created_at(self) -> str:
         now = self._clock()

@@ -47,11 +47,21 @@ class VersionTests(unittest.TestCase):
         hooks = json.loads(
             (PROJECT_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(set(hooks["hooks"]), {"SessionStart", "PostToolUse"})
+        self.assertEqual(
+            set(hooks["hooks"]),
+            {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"},
+        )
         serialized_hooks = json.dumps(hooks, ensure_ascii=False)
         self.assertNotIn("statusMessage", serialized_hooks)
-        self.assertNotIn("UserPromptSubmit", serialized_hooks)
+        self.assertIn("codex_prompt_context.py", serialized_hooks)
+        self.assertIn("codex_image_guard.py", serialized_hooks)
         self.assertIn("image_gen__imagegen", serialized_hooks)
+        self.assertGreaterEqual(
+            hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0][
+                "additionalContextLimit"
+            ],
+            3_200,
+        )
 
         agent_manifest = (
             PROJECT_ROOT / "skills" / "virtual-companion" / "agents" / "openai.yaml"
@@ -73,6 +83,8 @@ class VersionTests(unittest.TestCase):
         self.assertNotIn("### 3. 完成 Codex Hook 审核", readme)
         self.assertEqual(readme.count("回到 Codex，在输入框发送 `/hooks`"), 1)
         self.assertEqual(readme.count("SessionStart → codex_context.py"), 1)
+        self.assertEqual(readme.count("UserPromptSubmit → codex_prompt_context.py"), 1)
+        self.assertEqual(readme.count("PreToolUse → codex_image_guard.py"), 1)
         self.assertEqual(readme.count("PostToolUse → codex_image_receipt.py"), 1)
         install_prompt_end = readme.index("```", readme.index("```text") + 7)
         quick_hook_guide = readme.index("### 安装后还差 1 分钟")

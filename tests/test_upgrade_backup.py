@@ -14,6 +14,8 @@ from companion_kit.backup import (
 from companion_kit.image_assets import ImageAssetStore
 from companion_kit.initializer import initialize_profile
 from companion_kit.profile_store import ProfileStore
+from companion_kit.photo_moment import PhotoMoment
+from companion_kit.photo_moment_store import PhotoMomentStore
 from companion_kit.relationship import RelationshipEvent, RelationshipEventType
 from companion_kit.state_store import RelationshipStore
 from tests.png_fixture import tiny_png
@@ -95,6 +97,57 @@ def _create_durable_data(root: Path) -> tuple[str, str]:
 
 
 class BackupManagerTests(unittest.TestCase):
+    def test_photo_moment_history_is_durable_but_pending_bridge_is_not(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "companion-home"
+            store = PhotoMomentStore(root / "private" / "photo-moments")
+            photo_moment = PhotoMoment.from_dict(
+                {
+                    "mode": "new",
+                    "scene": "window",
+                    "activity": "getting_ready",
+                    "framing": "half",
+                    "hairstyle": "tied",
+                    "expression": "playful",
+                    "time_band": "day",
+                    "intimacy_band": "everyday",
+                    "caption_act": "unfinished_thought",
+                    "identity_version": 1,
+                }
+            )
+            store.stage(
+                profile_id="companion",
+                session_id="completed-session",
+                tool_use_id="completed-tool",
+                photo_moment=photo_moment,
+            )
+            store.commit(
+                profile_id="companion",
+                session_id="completed-session",
+                tool_use_id="completed-tool",
+            )
+            store.stage(
+                profile_id="companion",
+                session_id="pending-session",
+                tool_use_id="pending-tool",
+                photo_moment=photo_moment,
+            )
+            manager = BackupManager(
+                CompanionDataLayout.for_codex(data_root=root),
+                product_version="0.7.0-dev.7",
+                clock=lambda: NOW,
+            )
+
+            snapshot = manager.create()
+            paths = {
+                item["relative_path"] for item in snapshot.manifest["items"]
+            }
+
+            self.assertTrue(
+                any(path.startswith("private/photo-moments/") for path in paths)
+            )
+            self.assertFalse(any("/runtime/" in path for path in paths))
+
     def test_flat_custom_profile_is_included_without_scanning_sibling_private_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve() / "custom-owner"
@@ -110,7 +163,7 @@ class BackupManagerTests(unittest.TestCase):
             transient.write_text("temporary", encoding="utf-8")
             manager = BackupManager(
                 CompanionDataLayout.for_profile(profile),
-                product_version="0.7.0-dev.6",
+                product_version="0.7.0-dev.7",
                 clock=lambda: NOW,
             )
 
@@ -192,7 +245,7 @@ class BackupManagerTests(unittest.TestCase):
             pack.members[0].path.write_bytes(b"damaged")
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.7.0-dev.6",
+                product_version="0.7.0-dev.7",
                 clock=lambda: NOW,
             )
 
