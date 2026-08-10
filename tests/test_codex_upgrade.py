@@ -13,6 +13,8 @@ from companion_kit.codex_upgrade import (
     CodexUpgradeExecutor,
 )
 from companion_kit.profile_store import ProfileStore
+from companion_kit.photo_moment import PhotoMoment
+from companion_kit.photo_moment_store import PhotoMomentStore
 from companion_kit.upgrade import (
     CodexUpgradePlanner,
     InstallationReceiptStore,
@@ -82,7 +84,7 @@ class FakeCodex:
                         "version": version,
                         "installed": True,
                         "enabled": not (
-                            self.fail_new_health and version == "0.7.0-dev.6"
+                            self.fail_new_health and version == "0.7.0-dev.7"
                         ),
                         "source": {
                             "source": "local",
@@ -101,17 +103,49 @@ class FakeCodex:
                 stderr="",
             )
         if argv[1:3] == ["plugin", "add"]:
-            self._write_cache("0.7.0-dev.6", marker="new-program")
+            self._write_cache("0.7.0-dev.7", marker="new-program")
             return subprocess.CompletedProcess(
                 argv,
                 0,
-                stdout=json.dumps({"version": "0.7.0-dev.6"}),
+                stdout=json.dumps({"version": "0.7.0-dev.7"}),
                 stderr="",
             )
         raise AssertionError(f"unexpected command: {argv}")
 
 
 class CodexUpgradeExecutorTests(unittest.TestCase):
+    @staticmethod
+    def _photo_history(layout: CompanionDataLayout, profile_id: str) -> Path:
+        moments = PhotoMomentStore(layout.photo_moments_root)
+        photo_moment = PhotoMoment.from_dict(
+            {
+                "mode": "new",
+                "scene": "window",
+                "activity": "getting_ready",
+                "framing": "half",
+                "hairstyle": "loose",
+                "expression": "soft_smile",
+                "time_band": "day",
+                "intimacy_band": "everyday",
+                "caption_act": "share_detail",
+                "identity_version": 1,
+            }
+        )
+        moments.stage(
+            profile_id=profile_id,
+            session_id="upgrade-test-session",
+            tool_use_id="upgrade-test-image",
+            photo_moment=photo_moment,
+        )
+        result = moments.commit(
+            profile_id=profile_id,
+            session_id="upgrade-test-session",
+            tool_use_id="upgrade-test-image",
+        )
+        if not result.committed:
+            raise AssertionError("failed to prepare photo history")
+        return moments.history_path(profile_id)
+
     def _system(self, root: Path, *, fail_new_health: bool = False):
         data_root = root / "companion-home"
         codex_home = root / "codex-home"
@@ -123,7 +157,7 @@ class CodexUpgradeExecutorTests(unittest.TestCase):
             which=lambda name: "/usr/bin/codex" if name == "codex" else None,
             runner=fake,
         )
-        backups = BackupManager(layout, product_version="0.7.0-dev.6")
+        backups = BackupManager(layout, product_version="0.7.0-dev.7")
         executor = CodexUpgradeExecutor(
             planner=planner,
             backups=backups,
@@ -140,12 +174,14 @@ class CodexUpgradeExecutorTests(unittest.TestCase):
                 skill_root=SKILL_ROOT,
                 profile_path=layout.profile_path,
             )
-            store.save(
+            snapshot = store.save(
                 template_id="warm_healer",
                 display_name="小禾",
                 expected_version=None,
             )
+            history = self._photo_history(layout, snapshot.profile.id)
             before = layout.profile_path.read_bytes()
+            history_before = history.read_bytes()
 
             with patch.object(executor, "_validate_release", return_value=None):
                 result = executor.apply(confirm=True)
@@ -153,17 +189,18 @@ class CodexUpgradeExecutorTests(unittest.TestCase):
             self.assertTrue(result.applied)
             self.assertFalse(result.rolled_back)
             self.assertEqual(result.from_version, "0.7.0-dev.4")
-            self.assertEqual(result.to_version, "0.7.0-dev.6")
+            self.assertEqual(result.to_version, "0.7.0-dev.7")
             self.assertEqual(layout.profile_path.read_bytes(), before)
+            self.assertEqual(history.read_bytes(), history_before)
             self.assertTrue(backups.verify(result.backup_id).valid)
             program = CodexProgramSnapshotStore(layout).verify(
                 result.program_snapshot_id
             )
             self.assertEqual(program.plugin_version, "0.7.0-dev.4")
-            self.assertEqual(fake._installed_version(), "0.7.0-dev.6")
+            self.assertEqual(fake._installed_version(), "0.7.0-dev.7")
             receipt = InstallationReceiptStore(layout).read()
             self.assertIsNotNone(receipt)
-            self.assertEqual(receipt.plugin_version, "0.7.0-dev.6")
+            self.assertEqual(receipt.plugin_version, "0.7.0-dev.7")
 
     def test_failed_new_health_check_restores_old_program_not_old_persona(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -176,18 +213,21 @@ class CodexUpgradeExecutorTests(unittest.TestCase):
                 skill_root=SKILL_ROOT,
                 profile_path=layout.profile_path,
             )
-            store.save(
+            snapshot = store.save(
                 template_id="calm_partner",
                 display_name="阿岚",
                 expected_version=None,
             )
+            history = self._photo_history(layout, snapshot.profile.id)
             before = layout.profile_path.read_bytes()
+            history_before = history.read_bytes()
 
             with patch.object(executor, "_validate_release", return_value=None):
                 with self.assertRaisesRegex(UpgradeError, "已恢复旧程序"):
                     executor.apply(confirm=True)
 
             self.assertEqual(layout.profile_path.read_bytes(), before)
+            self.assertEqual(history.read_bytes(), history_before)
             self.assertEqual(fake._installed_version(), "0.7.0-dev.4")
             self.assertEqual(
                 (
@@ -291,7 +331,7 @@ class CodexUpgradeExecutorTests(unittest.TestCase):
 
             self.assertTrue(result.applied)
             self.assertFalse(result.upgrade_registered)
-            self.assertEqual(fake._installed_version(), "0.7.0-dev.6")
+            self.assertEqual(fake._installed_version(), "0.7.0-dev.7")
 
     def test_program_snapshot_tampering_is_rejected_before_manual_rollback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

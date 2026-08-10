@@ -623,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
                     "\n下一步："
                     + (
                         "安装完整 Codex Plugin，在 Codex 输入 /hooks，"
-                        "亲自审核 SessionStart 和图片工具专用 PostToolUse；"
+                        "亲自审核 Companion Kit 的四个窄 Hook（包括 SessionStart）；"
                         "随后新建任务，并以面板的运行验证结果为准。"
                         if args.host == "codex"
                         else "在新会话中显式启用 virtual-companion。"

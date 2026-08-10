@@ -35,7 +35,7 @@ def main() -> int:
         sys.path.insert(0, str(package_root))
         from companion_kit.codex_runtime import load_codex_runtime_context
 
-        runtime = load_codex_runtime_context()
+        runtime = load_codex_runtime_context(include_identity=False)
         if runtime is None:
             _record_session_start_health()
             return 0

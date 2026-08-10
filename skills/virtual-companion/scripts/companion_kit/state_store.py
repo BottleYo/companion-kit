@@ -116,9 +116,17 @@ class RelationshipStore:
         database_path: str | Path,
         *,
         policy: RelationshipPolicy | None = None,
+        connection_timeout: float = 5.0,
     ) -> None:
+        try:
+            normalized_timeout = float(connection_timeout)
+        except (TypeError, ValueError) as exc:
+            raise StoreError("关系数据库等待时间无效") from exc
+        if not 0 < normalized_timeout <= 60:
+            raise StoreError("关系数据库等待时间无效")
         self.database_path = _safe_database_path(database_path)
         self.policy = policy or RelationshipPolicy()
+        self._connection_timeout = normalized_timeout
         if self.database_path.exists() and not self.database_path.is_file():
             raise StoreError("状态库目标必须是普通文件")
 
@@ -131,11 +139,13 @@ class RelationshipStore:
             _safe_database_path(self.database_path)
             connection = sqlite3.connect(
                 self.database_path,
-                timeout=5.0,
+                timeout=self._connection_timeout,
                 isolation_level=None,
             )
             connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA busy_timeout = 5000")
+            connection.execute(
+                f"PRAGMA busy_timeout = {max(1, int(self._connection_timeout * 1000))}"
+            )
             self._ensure_schema(connection)
             journal = connection.execute("PRAGMA journal_mode = WAL").fetchone()
             if journal is None or str(journal[0]).casefold() != "wal":

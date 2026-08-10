@@ -23,7 +23,16 @@ HOOK_REVIEW_SCHEMA_VERSION = 1
 _HOOK_BUNDLE_FILES = (
     "hooks/hooks.json",
     "hooks/codex_context.py",
+    "hooks/codex_prompt_context.py",
+    "hooks/codex_image_guard.py",
     "hooks/codex_image_receipt.py",
+    "skills/virtual-companion/scripts/companion_kit/codex_runtime.py",
+    "skills/virtual-companion/scripts/companion_kit/codex_turn.py",
+    "skills/virtual-companion/scripts/companion_kit/codex_image_receipts.py",
+    "skills/virtual-companion/scripts/companion_kit/image_assets.py",
+    "skills/virtual-companion/scripts/companion_kit/state_store.py",
+    "skills/virtual-companion/scripts/companion_kit/photo_moment.py",
+    "skills/virtual-companion/scripts/companion_kit/photo_moment_store.py",
 )
 _RECEIPT_KEYS = {
     "schema_version",
@@ -141,7 +150,7 @@ def inspect_hook_bundle(plugin_root: str | Path) -> HookBundleIdentity:
         raise HookHealthError("Codex Plugin 清单缺少有效版本")
 
     digest = sha256()
-    digest.update(b"companion-kit-hook-bundle-v1\0")
+    digest.update(b"companion-kit-hook-bundle-v2\0")
     for relative in _HOOK_BUNDLE_FILES:
         path = root.joinpath(*relative.split("/"))
         try:
