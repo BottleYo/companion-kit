@@ -37,6 +37,7 @@ def _moment(*, mode: str = "new", identity_version: int = 1) -> PhotoMoment:
             "framing": "half",
             "hairstyle": "tied",
             "expression": "playful",
+            "makeup": "natural",
             "time_band": "day",
             "intimacy_band": "everyday",
             "caption_act": "unfinished_thought",
@@ -193,7 +194,7 @@ class CodexPhotoHookTests(unittest.TestCase):
             output = json.loads(completed.stdout)
             context = output["hookSpecificOutput"]["additionalContext"]
             self.assertIn(str(primary.path), context)
-            self.assertIn("COMPANION_KIT_PHOTO_V1", context)
+            self.assertIn("COMPANION_KIT_PHOTO_V2", context)
             self.assertIn("直接调用", context)
             self.assertNotIn("我想看你现在的样子", context)
             self.assertNotIn("OPENAI_API_KEY", context)
@@ -232,7 +233,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                 "additionalContext"
             ]
             self.assertIn(str(primary.path), context)
-            self.assertIn("COMPANION_KIT_PHOTO_V1", context)
+            self.assertIn("COMPANION_KIT_PHOTO_V2", context)
             with patch.dict(
                 os.environ,
                 {"COMPANION_HOME": str(home)},
@@ -615,7 +616,7 @@ class CodexPhotoHookTests(unittest.TestCase):
             output = json.loads(completed.stdout)["hookSpecificOutput"]
             self.assertEqual(output["permissionDecision"], "allow")
             self.assertIn("普通日常分享", output["updatedInput"]["prompt"])
-            self.assertNotIn("COMPANION_KIT_PHOTO_V1", output["updatedInput"]["prompt"])
+            self.assertNotIn("COMPANION_KIT_PHOTO_V2", output["updatedInput"]["prompt"])
             self.assertNotIn("referenced_image_paths", output["updatedInput"])
             self.assertNotIn("num_last_images_to_include", output["updatedInput"])
             self.assertNotIn("additionalContext", output)
@@ -737,10 +738,11 @@ class CodexPhotoHookTests(unittest.TestCase):
             self.assertEqual(updated["referenced_image_paths"], [str(primary.path)])
             self.assertNotIn("num_last_images_to_include", updated)
             self.assertNotIn(str(old_image), json.dumps(updated, ensure_ascii=False))
-            self.assertNotIn("COMPANION_KIT_PHOTO_V1", updated["prompt"])
+            self.assertNotIn("COMPANION_KIT_PHOTO_V2", updated["prompt"])
             self.assertIn("只固定脸部身份", updated["prompt"])
             self.assertIn("发型", updated["prompt"])
             self.assertIn("表情", updated["prompt"])
+            self.assertIn("本次最终妆容", updated["prompt"])
 
     def test_edit_requires_current_session_receipt_and_keeps_primary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

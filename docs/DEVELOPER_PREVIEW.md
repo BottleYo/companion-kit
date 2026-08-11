@@ -2,7 +2,7 @@
 
 ## 当前定位
 
-`0.7.0-dev.7` 是 Codex-first Developer Preview，不是面向普通用户的稳定版本。它适合愿意在测试环境验证初始化、Plugin 安装、安静 Persona、Codex 内置生图、固定脸部身份和升级恢复点的开发者。
+`0.7.0-dev.8` 是 Codex-first Developer Preview，不是面向普通用户的稳定版本。它适合愿意在测试环境验证初始化、Plugin 安装、安静 Persona、Codex 内置生图、固定脸部身份和升级恢复点的开发者。
 
 当前开发主线已经调整为 Codex 优先。普通用户内测暂缓，先用未参与开发的 Codex 环境验证“一次面板初始化，后续自然聊天、直接拍照、继续解决问题”的完整体验。OpenClaw、Hermes 与 Claude 暂时只做现有能力回归和安全修复。
 

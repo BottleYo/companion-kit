@@ -87,7 +87,7 @@ class HostInstallTests(unittest.TestCase):
         self.assertTrue(result.applied)
         self.assertTrue(result.upgrade_registered)
         self.assertIsNotNone(receipt)
-        self.assertEqual(receipt.plugin_version, "0.7.0-dev.7")
+        self.assertEqual(receipt.plugin_version, "0.7.0-dev.8")
         self.assertEqual(result.plan.method, "codex_plugin")
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][0][:4], ["/usr/bin/codex", "plugin", "marketplace", "add"])

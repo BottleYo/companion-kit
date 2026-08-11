@@ -10,10 +10,19 @@ class PhotoMomentError(ValueError):
     """照片配方或工具控制信封不满足最小协议。"""
 
 
-PHOTO_MOMENT_SCHEMA_VERSION = 1
-_ENVELOPE_START = "[[COMPANION_KIT_PHOTO_V1]]"
-_ENVELOPE_END = "[[/COMPANION_KIT_PHOTO_V1]]"
-_MOMENT_FIELDS = {
+PHOTO_MOMENT_SCHEMA_VERSION = 2
+_ENVELOPES = {
+    1: (
+        "[[COMPANION_KIT_PHOTO_V1]]",
+        "[[/COMPANION_KIT_PHOTO_V1]]",
+    ),
+    2: (
+        "[[COMPANION_KIT_PHOTO_V2]]",
+        "[[/COMPANION_KIT_PHOTO_V2]]",
+    ),
+}
+_ENVELOPE_START, _ENVELOPE_END = _ENVELOPES[PHOTO_MOMENT_SCHEMA_VERSION]
+_MOMENT_FIELDS_V1 = {
     "mode",
     "scene",
     "activity",
@@ -25,6 +34,7 @@ _MOMENT_FIELDS = {
     "caption_act",
     "identity_version",
 }
+_MOMENT_FIELDS = _MOMENT_FIELDS_V1 | {"makeup"}
 _ENVELOPE_FIELDS = {"schema_version", "turn_token", "photo_moment"}
 _TOKEN_RE = re.compile(r"^ckp_[0-9a-f]{24}$")
 
@@ -73,7 +83,21 @@ _VALUES = {
         "quiet_direct",
         "playful",
         "thoughtful",
+        "calm_serious",
+        "sleepy_relaxed",
         "custom",
+    },
+    "makeup": {
+        "bare",
+        "minimal",
+        "natural",
+        "soft_matte",
+        "warm_tone",
+        "cool_tone",
+        "defined_eyes",
+        "evening",
+        "custom",
+        "unspecified",
     },
     "time_band": {"morning", "day", "dusk", "night", "custom"},
     "intimacy_band": {
@@ -104,7 +128,25 @@ _ROTATIONS = {
     ),
     "framing": ("close", "half", "three_quarter", "full", "mirror", "over_shoulder"),
     "hairstyle": ("loose", "tied", "half_up", "pinned_back", "textured"),
-    "expression": ("soft_smile", "open_smile", "quiet_direct", "playful", "thoughtful"),
+    "expression": (
+        "soft_smile",
+        "open_smile",
+        "quiet_direct",
+        "playful",
+        "thoughtful",
+        "calm_serious",
+        "sleepy_relaxed",
+    ),
+    "makeup": (
+        "bare",
+        "minimal",
+        "natural",
+        "soft_matte",
+        "warm_tone",
+        "cool_tone",
+        "defined_eyes",
+        "evening",
+    ),
 }
 _INTIMACY_ORDER = (
     "everyday",
@@ -126,18 +168,26 @@ class PhotoMoment:
     intimacy_band: str
     caption_act: str
     identity_version: int
+    makeup: str = "unspecified"
 
     @classmethod
     def from_dict(cls, raw: object) -> PhotoMoment:
-        if not isinstance(raw, dict) or set(raw) != _MOMENT_FIELDS:
+        if not isinstance(raw, dict):
+            raise PhotoMomentError("PhotoMoment 字段无效")
+        fields = set(raw)
+        if fields == _MOMENT_FIELDS_V1:
+            normalized = {**raw, "makeup": "unspecified"}
+        elif fields == _MOMENT_FIELDS:
+            normalized = dict(raw)
+        else:
             raise PhotoMomentError("PhotoMoment 字段无效")
         values: dict[str, object] = {}
         for field in _MOMENT_FIELDS - {"identity_version"}:
-            value = raw.get(field)
+            value = normalized.get(field)
             if not isinstance(value, str) or value not in _VALUES[field]:
                 raise PhotoMomentError(f"PhotoMoment {field} 无效")
             values[field] = value
-        identity_version = raw.get("identity_version")
+        identity_version = normalized.get("identity_version")
         if (
             not isinstance(identity_version, int)
             or isinstance(identity_version, bool)
@@ -156,6 +206,7 @@ class PhotoMoment:
             "framing": self.framing,
             "hairstyle": self.hairstyle,
             "expression": self.expression,
+            "makeup": self.makeup,
             "time_band": self.time_band,
             "intimacy_band": self.intimacy_band,
             "caption_act": self.caption_act,
@@ -179,13 +230,27 @@ class PhotoMoment:
             ("动作", "activity", _ACTIVITY_LABELS),
             ("镜头", "framing", _FRAMING_LABELS),
             ("发型", "hairstyle", _HAIRSTYLE_LABELS),
-            ("表情", "expression", _EXPRESSION_LABELS),
             ("时间与光线", "time_band", _TIME_LABELS),
         ):
             value = getattr(self, field)
             if value != "custom":
                 lines.append(f"{label}：{mapping[value]}。")
-        lines.append("用户在原始图片描述里明确提出的细节优先；不要添加文字、水印、拼贴或分镜说明。")
+        if self.expression != "custom":
+            lines.append(
+                f"本次最终神态：{_EXPRESSION_LABELS[self.expression]}。"
+                "要让眼神、眉部和嘴部状态共同形成清楚可见的区别，不退回参考图的默认表情。"
+            )
+        if self.makeup not in {"custom", "unspecified"}:
+            lines.append(
+                f"本次最终妆容：{_MAKEUP_LABELS[self.makeup]}。"
+                "妆容随当下场景自然成立，不改变脸型、五官比例或人物辨识特征，也不套用统一瘦脸、大眼或网红脸。"
+            )
+        lines.append(
+            "主脸参考里可见的表情与妆容只是拍摄当时状态；上面的本次神态与妆容是当前照片的最终造型决定。"
+        )
+        lines.append(
+            "用户在原始图片描述里明确点名的细节始终优先；custom 表示直接遵照原始描述。不要添加文字、水印、拼贴或分镜说明。"
+        )
         lines.append(f"关系表达上限：{intimacy}；即使原始描述更进一步也不得越过。")
         return "\n".join(lines)
 
@@ -193,11 +258,12 @@ class PhotoMoment:
         scene = _SCENE_LABELS.get(self.scene, "用户指定的场景")
         activity = _ACTIVITY_LABELS.get(self.activity, "用户指定的动作")
         expression = _EXPRESSION_LABELS.get(self.expression, "用户指定的神情")
+        makeup = _MAKEUP_LABELS.get(self.makeup, "用户指定或自然延续的妆容")
         caption = _CAPTION_LABELS.get(self.caption_act, "顺着当前对话自然接下去")
         intimacy = _INTIMACY_LABELS[self.intimacy_band]
         return (
             "只有图片工具真实成功返回后，才写人物会自然说出口的一两句话；没有真实结果就不说已经拍好。不要讲生成过程、模型、Hook、Provider、耗时或参数。"
-            f"这次的共同照片时刻是：{scene}，{activity}，{expression}；表达动作是“{caption}”；关系表达上限是“{intimacy}”。"
+            f"这次的共同照片时刻是：{scene}，{activity}，{expression}，妆容方向是{makeup}；表达动作是“{caption}”；关系表达上限是“{intimacy}”。"
             "让文字回应用户刚才的语境，并与实际可见画面呼应；若某个计划细节在成图中并不清楚，就不要硬说它已经出现。"
             "人物要有一点自己的态度或小心思，并留下一个让对话容易继续的口子；避免机械地问“喜欢吗”“还想看吗”，也不要复述规格清单。"
         )
@@ -237,11 +303,23 @@ _HAIRSTYLE_LABELS = {
     "textured": "做出与上一张不同的自然蓬松和纹理，不改变人物身份",
 }
 _EXPRESSION_LABELS = {
-    "soft_smile": "眼角有一点笑意，嘴角克制",
-    "open_smile": "放松地笑开，不沿用固定模板微笑",
-    "quiet_direct": "安静直视镜头，像在等对方接话",
-    "playful": "俏皮地轻挑眉或把笑意藏住一点",
-    "thoughtful": "若有所思，视线短暂离开镜头",
+    "soft_smile": "双眼看向镜头，嘴唇闭合，只有眼角和嘴角轻轻带笑",
+    "open_smile": "自然笑开，嘴唇微张并可见少量牙齿，脸颊随笑意抬起",
+    "quiet_direct": "不微笑，嘴唇完全放松，安静而稳定地直视镜头",
+    "playful": "俏皮地让一侧眉峰轻抬，嘴角形成不对称的半笑，眼神带一点逗弄",
+    "thoughtful": "视线离开镜头，眉间和嘴部放松，像刚想到一件事",
+    "calm_serious": "目光清醒坚定，眉形平稳，嘴角不带笑意但不显僵硬",
+    "sleepy_relaxed": "眼睑略放松，目光柔软，嘴部自然松弛，带一点刚醒或夜深的慵懒",
+}
+_MAKEUP_LABELS = {
+    "bare": "接近素颜，只保留真实肤色、眉毛和唇色",
+    "minimal": "很轻的日常整理，底妆薄，眉眼与唇色接近本身",
+    "natural": "自然日常妆，肤质可见，眉眼和唇色有克制的提气",
+    "soft_matte": "低光泽的柔雾妆面，轮廓轻，不做厚重磨皮",
+    "warm_tone": "克制的暖色眼妆与唇色，整体像自然光下的生活妆",
+    "cool_tone": "克制的冷调眼妆与唇色，清爽但不过度锐化",
+    "defined_eyes": "眼线或睫毛比日常略清楚，其他部分保持轻薄",
+    "evening": "比日常稍浓的夜间妆，眼唇有重点但仍像真人出门前完成的妆容",
 }
 _TIME_LABELS = {
     "morning": "清晨自然光",
@@ -312,6 +390,31 @@ def normalize_photo_moment(
                 (getattr(item, field) for item in history[-4:]),
             )
     result = replace(result, **changes)
+    if (
+        result.makeup not in {"custom", "unspecified"}
+        and len(history) >= 2
+        and all(item.makeup == result.makeup for item in history[-2:])
+        and (
+            result.scene != previous.scene
+            or result.time_band != previous.time_band
+            or (
+                result.activity == "getting_ready"
+                and previous.activity != "getting_ready"
+            )
+        )
+    ):
+        result = replace(
+            result,
+            makeup=_next_value(
+                "makeup",
+                result.makeup,
+                (
+                    item.makeup
+                    for item in history[-4:]
+                    if item.makeup != "unspecified"
+                ),
+            ),
+        )
     compared = ("scene", "activity", "framing", "hairstyle", "expression")
     difference_count = sum(
         getattr(result, field) != getattr(previous, field) for field in compared
@@ -358,16 +461,25 @@ def parse_photo_envelope(
         raise PhotoMomentError("图片提示无效")
     if not _TOKEN_RE.fullmatch(str(expected_token or "")):
         raise PhotoMomentError("预期照片回合标记无效")
-    start = prompt.rfind(_ENVELOPE_START)
-    end = prompt.rfind(_ENVELOPE_END)
+    matches: list[tuple[int, str, str, int, int]] = []
+    for version, (start_marker, end_marker) in _ENVELOPES.items():
+        start = prompt.rfind(start_marker)
+        end = prompt.rfind(end_marker)
+        if start < 0 and end < 0:
+            continue
+        if start < 0 or end < start:
+            raise PhotoMomentError("缺少有效 Companion 照片控制信封")
+        matches.append((version, start_marker, end_marker, start, end))
+    if len(matches) != 1:
+        raise PhotoMomentError("缺少有效 Companion 照片控制信封")
+    version, start_marker, end_marker, start, end = matches[0]
     if (
-        start < 0
-        or end < start
-        or prompt[end + len(_ENVELOPE_END) :].strip()
-        or prompt[:start].find(_ENVELOPE_START) >= 0
+        prompt[end + len(end_marker) :].strip()
+        or prompt[:start].find(start_marker) >= 0
+        or prompt[:start].find(end_marker) >= 0
     ):
         raise PhotoMomentError("缺少有效 Companion 照片控制信封")
-    raw_json = prompt[start + len(_ENVELOPE_START) : end].strip()
+    raw_json = prompt[start + len(start_marker) : end].strip()
     try:
         payload = json.loads(raw_json)
     except json.JSONDecodeError as exc:
@@ -375,11 +487,15 @@ def parse_photo_envelope(
     if (
         not isinstance(payload, dict)
         or set(payload) != _ENVELOPE_FIELDS
-        or payload.get("schema_version") != PHOTO_MOMENT_SCHEMA_VERSION
+        or payload.get("schema_version") != version
         or payload.get("turn_token") != expected_token
     ):
+        raise PhotoMomentError("Companion 照片控制信封与当前回合不匹配")
+    moment_raw = payload.get("photo_moment")
+    expected_fields = _MOMENT_FIELDS_V1 if version == 1 else _MOMENT_FIELDS
+    if not isinstance(moment_raw, dict) or set(moment_raw) != expected_fields:
         raise PhotoMomentError("Companion 照片控制信封与当前回合不匹配")
     cleaned = prompt[:start].rstrip()
     if not cleaned:
         raise PhotoMomentError("图片提示缺少真实画面描述")
-    return cleaned, PhotoMoment.from_dict(payload.get("photo_moment"))
+    return cleaned, PhotoMoment.from_dict(moment_raw)

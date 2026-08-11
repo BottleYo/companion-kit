@@ -21,8 +21,9 @@ class PhotoMomentStoreError(ValueError):
     """最近照片配方无法安全读取或保存。"""
 
 
-PHOTO_MOMENT_HISTORY_SCHEMA_VERSION = 1
-PHOTO_MOMENT_PENDING_SCHEMA_VERSION = 1
+PHOTO_MOMENT_HISTORY_SCHEMA_VERSION = 2
+PHOTO_MOMENT_PENDING_SCHEMA_VERSION = 2
+_SUPPORTED_PHOTO_MOMENT_STORE_VERSIONS = frozenset({1, 2})
 PHOTO_TURN_SCHEMA_VERSION = 1
 PHOTO_RESULT_SCHEMA_VERSION = 2
 LATEST_RESULT_MISSING = "missing"
@@ -244,7 +245,8 @@ class PhotoMomentStore:
             return ()
         if (
             set(raw) != _HISTORY_KEYS
-            or raw.get("schema_version") != PHOTO_MOMENT_HISTORY_SCHEMA_VERSION
+            or raw.get("schema_version")
+            not in _SUPPORTED_PHOTO_MOMENT_STORE_VERSIONS
             or raw.get("profile_digest") != profile_digest
             or not isinstance(raw.get("recent"), list)
         ):
@@ -542,7 +544,8 @@ class PhotoMomentStore:
         profile_digest = _digest("Persona", profile_id)
         if (
             set(raw) != _PENDING_KEYS
-            or raw.get("schema_version") != PHOTO_MOMENT_PENDING_SCHEMA_VERSION
+            or raw.get("schema_version")
+            not in _SUPPORTED_PHOTO_MOMENT_STORE_VERSIONS
             or raw.get("profile_digest") != profile_digest
         ):
             raise PhotoMomentStoreError("待提交照片配方结构无效")
@@ -636,9 +639,12 @@ class PhotoMomentStore:
                         continue
                     try:
                         raw = _read_json(pending_path)
-                        if raw is None or set(raw) != _PENDING_KEYS or raw.get(
-                            "schema_version"
-                        ) != PHOTO_MOMENT_PENDING_SCHEMA_VERSION:
+                        if (
+                            raw is None
+                            or set(raw) != _PENDING_KEYS
+                            or raw.get("schema_version")
+                            not in _SUPPORTED_PHOTO_MOMENT_STORE_VERSIONS
+                        ):
                             continue
                         created = datetime.fromisoformat(str(raw.get("created_at") or ""))
                         if created.tzinfo is None:

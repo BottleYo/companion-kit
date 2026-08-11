@@ -161,7 +161,7 @@ class WebPanelTests(unittest.TestCase):
             def to_dict(self) -> dict[str, object]:
                 return {
                     "ready": True,
-                    "release_version": "0.7.0-dev.7",
+                    "release_version": "0.7.0-dev.8",
                     "marketplace_source_type": "local",
                     "update_candidate": True,
                 }
@@ -193,7 +193,7 @@ class WebPanelTests(unittest.TestCase):
             def to_dict(self) -> dict[str, object]:
                 return {
                     "from_version": "0.7.0-dev.4",
-                    "to_version": "0.7.0-dev.7",
+                    "to_version": "0.7.0-dev.8",
                     "backup_id": "20260806T080000Z-deadbeef",
                     "applied": True,
                     "durable_data_replaced": False,
@@ -443,7 +443,7 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.7.0-dev.7")
+                self.assertEqual(payload["version"], "0.7.0-dev.8")
                 self.assertIn("codex_native", payload["photo_modes"])
                 self.assertIn("identity_reuse", payload["photo_modes"])
                 self.assertNotIn("openai_strict", payload["photo_modes"])

@@ -87,7 +87,7 @@
 
 ## 阶段 4：Codex 自然体验闭环（当前 P0）
 
-当前进度：`0.7.0-dev.7` 已完成完整 Plugin 安装、四个 Hook 的审核引导与最小运行回执、轻量 `SessionStart` Persona、按照片回合加载身份与配方、图片参数保护、图文联动、一句话 Persona v3 草稿、面板参考图上传、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack、跨任务取回和本地 Codex 安全升级。面板不再把安装成功等同于运行就绪；只有当前 Persona、主脸和 `SessionStart` 均验证才显示可以使用。升级会先校验用户恢复点和旧程序快照，再切换 Plugin；版本或 Hook bundle 变化会让旧回执过期，但不会覆盖用户资料。Codex Plugin 不再暴露独立 Skill，也不检查或改动用户级 Skill 目录。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
+当前进度：`0.7.0-dev.8` 已完成完整 Plugin 安装、四个 Hook 的审核引导与最小运行回执、轻量 `SessionStart` Persona、按照片回合加载身份与配方、图片参数保护、图文联动、一句话 Persona v3 草稿、面板参考图上传、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack、跨任务取回和本地 Codex 安全升级。PhotoMoment v2 已把表情与妆容变成独立造型轴，同时兼容旧历史。面板不再把安装成功等同于运行就绪；只有当前 Persona、主脸和 `SessionStart` 均验证才显示可以使用。升级会先校验用户恢复点和旧程序快照，再切换 Plugin；版本或 Hook bundle 变化会让旧回执过期，但不会覆盖用户资料。Codex Plugin 不再暴露独立 Skill，也不检查或改动用户级 Skill 目录。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
 
 ### 4.1 一次性初始化
 
