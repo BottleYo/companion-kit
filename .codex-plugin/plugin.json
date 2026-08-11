@@ -1,6 +1,6 @@
 {
   "name": "companion-kit",
-  "version": "0.7.0-dev.7",
+  "version": "0.7.0-dev.8",
   "description": "一次本地初始化后，在 Codex 中自然聊天、继续解决问题，并为可确认的固定脸部身份提供照片复用链路。",
   "author": {
     "name": "Companion Kit contributors",
@@ -13,7 +13,7 @@
   "interface": {
     "displayName": "虚拟陪伴对象",
     "shortDescription": "自然陪你聊天，也照常帮你把事情做好",
-    "longDescription": "先在本地面板用一句话描述想认识的人，也可以从模板开始并继续调整；已有参考图时还能直接上传、预览并确认主脸。之后打开 Codex 新任务，它会通过 Plugin Hook 安静读取轻量人格和关系投影，不安装或唤醒独立 Skill。普通问题继续由 Codex 完整处理；人物照片才按需加载身份参考和最近配方，直接使用 Codex 内置生图，不需要 API Key 或 Provider 配置。新拍固定同一张脸但主动变化发型、表情和场景，图片后的话也会接住当张画面。",
+    "longDescription": "先在本地面板用一句话描述想认识的人，也可以从模板开始并继续调整；已有参考图时还能直接上传、预览并确认主脸。之后打开 Codex 新任务，它会通过 Plugin Hook 安静读取轻量人格和关系投影，不安装或唤醒独立 Skill。普通问题继续由 Codex 完整处理；人物照片才按需加载身份参考和最近配方，直接使用 Codex 内置生图，不需要 API Key 或 Provider 配置。新拍固定同一张脸，但让发型、表情、妆容和场景自然变化，图片后的话也会接住当张画面。",
     "developerName": "Companion Kit contributors",
     "category": "Productivity",
     "capabilities": ["Local setup", "Natural conversation", "Codex task assistance", "Built-in image generation", "Relationship projection"],

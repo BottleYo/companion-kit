@@ -107,7 +107,7 @@ class CodexUpgradePlannerTests(unittest.TestCase):
             self.assertTrue(result.plugin_installed)
             self.assertTrue(result.plugin_enabled)
             self.assertEqual(result.installed_version, "0.7.0-dev.3")
-            self.assertEqual(result.release_version, "0.7.0-dev.7")
+            self.assertEqual(result.release_version, "0.7.0-dev.8")
             self.assertEqual(result.marketplace_source_type, "local")
             self.assertTrue(result.marketplace_matches_release_source)
             self.assertTrue(result.update_candidate)
@@ -252,7 +252,7 @@ class CodexUpgradePlannerTests(unittest.TestCase):
                 {
                     "name": "companion-kit",
                     "marketplaceName": "companion-kit-preview",
-                    "version": "0.7.0-dev.7+codex.local-20260806-080000",
+                    "version": "0.7.0-dev.8+codex.local-20260806-080000",
                     "enabled": True,
                     "marketplaceSource": {
                         "sourceType": "local",

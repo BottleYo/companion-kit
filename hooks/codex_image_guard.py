@@ -14,7 +14,10 @@ _IMAGE_TOOL_NAMES = {
     "mcp__image_gen__imagegen",
     "imagegen",
 }
-_ENVELOPE_MARKER = "[[COMPANION_KIT_PHOTO_V1]]"
+_ENVELOPE_MARKERS = (
+    "[[COMPANION_KIT_PHOTO_V1]]",
+    "[[COMPANION_KIT_PHOTO_V2]]",
+)
 
 
 def _plugin_root() -> Path:
@@ -85,7 +88,9 @@ def main() -> int:
         turn_id = str(payload.get("turn_id") or "")
         tool_use_id = str(payload.get("tool_use_id") or "")
         store = PhotoMomentStore(lock_timeout=0.25)
-        has_marker = isinstance(prompt, str) and _ENVELOPE_MARKER in prompt
+        has_marker = isinstance(prompt, str) and any(
+            marker in prompt for marker in _ENVELOPE_MARKERS
+        )
         ticket_present = store.turn_ticket_present(
             session_id=session_id,
             turn_id=turn_id,

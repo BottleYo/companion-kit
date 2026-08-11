@@ -13,7 +13,7 @@ from .config import PersonaProfile, load_profile
 from .initializer import default_profile_path, safe_profile_path
 from .identity_pack import BODY_SHAPE, IDENTITY_ROLE_LABELS, PRIMARY_FACE, PROFILE_FACE
 from .image_assets import IdentityPack, ImageAssetError, ImageAssetStore
-from .photo_moment import PhotoMoment
+from .photo_moment import PHOTO_MOMENT_SCHEMA_VERSION, PhotoMoment
 from .relationship import (
     Atmosphere,
     RelationshipProjection,
@@ -173,7 +173,8 @@ class CodexRuntimeContext:
             "activity=pause|walking|sitting|drinking|reading|getting_ready|adjusting_accessory|custom；"
             "framing=close|half|three_quarter|full|mirror|over_shoulder|custom；"
             "hairstyle=loose|tied|half_up|pinned_back|textured|custom；"
-            "expression=soft_smile|open_smile|quiet_direct|playful|thoughtful|custom；"
+            "expression=soft_smile|open_smile|quiet_direct|playful|thoughtful|calm_serious|sleepy_relaxed|custom；"
+            "makeup=bare|minimal|natural|soft_matte|warm_tone|cool_tone|defined_eyes|evening|custom；"
             "time_band=morning|day|dusk|night|custom；"
             "caption_act=share_detail|soft_tease|unfinished_thought|invite_choice|gentle_check_in|custom。"
         )
@@ -184,11 +185,11 @@ class CodexRuntimeContext:
             f"当前允许的照片亲密档位：{','.join(photo_bands)}；不得选择列表外档位。关系只控制亲密上限，不决定发型和场景。",
             mode_rule,
             *identity_lines,
-            f"最近成功照片配方（只有受控枚举，没有聊天或提示词）：{recent_payload}。新拍默认让 scene/activity/framing/hairstyle/expression 至少两项不同，且未被用户点名时 hairstyle 或 expression 至少改变一项。",
-            "imagegen 的普通画面描述末尾必须附一个控制信封。信封不会发给图片模型；PreToolUse 会校验并移除。photo_moment 只能使用下面枚举；用户明确要求保持不变，或枚举无法准确表达的轴写 custom，具体要求只留在普通画面描述里，不要把原文塞进字段。",
+            f"最近成功照片配方（只有受控枚举，没有聊天或提示词）：{recent_payload}。新拍让 scene/activity/framing/hairstyle/expression 至少两项不同，且未被点名时 hairstyle 或 expression 至少改变一项。妆容不机械逐张换：同一组或接着拍时自然延续；明显换了时间、场景或准备出门时可换，但连续多次不应永远相同。",
+            "imagegen 的普通画面描述末尾必须附一个控制信封。信封不会发给图片模型；PreToolUse 会校验并移除。photo_moment 只能使用下面枚举；用户明确点名发型、表情或妆容时一律把对应轴写 custom，具体要求只留在普通画面描述里。用户要求保持不变，Persona 对某轴有固定边界，或枚举无法准确表达时也写 custom，不要把原文塞进字段。",
             schema,
             "严格使用这个 JSON 结构，不增删字段："
-            f"\n[[COMPANION_KIT_PHOTO_V1]]\n{{\"schema_version\":1,\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}}}}\n[[/COMPANION_KIT_PHOTO_V1]]",
+            f"\n[[COMPANION_KIT_PHOTO_V2]]\n{{\"schema_version\":{PHOTO_MOMENT_SCHEMA_VERSION},\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"makeup\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}}}}\n[[/COMPANION_KIT_PHOTO_V2]]",
             "图片真实返回后再说话，并遵守 PostToolUse 给出的同一 PhotoMoment 文案约束；没有真实结果不说已经拍好。",
         )
         rendered = "\n".join(lines)
