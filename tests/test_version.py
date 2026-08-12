@@ -70,27 +70,44 @@ class VersionTests(unittest.TestCase):
 
     def test_readme_gives_codex_an_unambiguous_plugin_install_prompt(self) -> None:
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        install_prompt_start = readme.index("```text")
+        install_prompt_end = readme.index("```", install_prompt_start + 7)
+        install_prompt = readme[install_prompt_start:install_prompt_end]
 
-        self.assertIn("把这段原样发给它", readme)
-        self.assertIn("不要调用 skill-installer", readme)
-        self.assertIn("install --host codex --apply", readme)
-        self.assertIn("不要检查、移动或清理任何用户级 Skill 目录", readme)
-        self.assertIn("读取 README 中“安装后还差 1 分钟”", readme)
-        self.assertIn("回到 Codex，在输入框发送 `/hooks`", readme)
-        self.assertIn("不用重新上传照片", readme)
-        self.assertIn("Persona 与主脸已成功加载", readme)
-        self.assertIn("### 安装后还差 1 分钟", readme)
+        self.assertIn("把下面整段原样发给 Codex", readme)
+        self.assertLessEqual(len(readme.splitlines()), 180)
+        self.assertIn("不要调用 skill-installer", install_prompt)
+        self.assertIn("install --host codex --apply", install_prompt)
+        self.assertIn(
+            "不要检查、移动或清理任何用户级 Skill 目录",
+            install_prompt,
+        )
+        self.assertIn("Hook 审核引导和运行验证一起做完", install_prompt)
+        self.assertIn("Plugin 文件安装成功不等于已经可以使用", install_prompt)
+        self.assertIn("在 Codex 输入 `/hooks`", install_prompt)
+        self.assertIn("不要写入 trusted_hash", install_prompt)
+        self.assertIn("不要使用 --dangerously-bypass-hook-trust", install_prompt)
+        self.assertIn("不要修改用户全局 AGENTS.md", install_prompt)
+        self.assertIn("完全退出并重新打开 Codex", install_prompt)
+        self.assertIn("不要让我重新上传已有的健康参考图", install_prompt)
+        self.assertIn("Persona 与主脸已成功加载", install_prompt)
+        self.assertNotIn("读取 README 中“安装后还差 1 分钟”", readme)
+        self.assertNotIn("### 安装后还差 1 分钟", readme)
         self.assertNotIn("### 3. 完成 Codex Hook 审核", readme)
-        self.assertEqual(readme.count("回到 Codex，在输入框发送 `/hooks`"), 1)
+        self.assertEqual(readme.count("在 Codex 输入 `/hooks`"), 1)
         self.assertEqual(readme.count("SessionStart → codex_context.py"), 1)
         self.assertEqual(readme.count("UserPromptSubmit → codex_prompt_context.py"), 1)
         self.assertEqual(readme.count("PreToolUse → codex_image_guard.py"), 1)
         self.assertEqual(readme.count("PostToolUse → codex_image_receipt.py"), 1)
-        install_prompt_end = readme.index("```", readme.index("```text") + 7)
-        quick_hook_guide = readme.index("### 安装后还差 1 分钟")
-        feature_overview = readme.index("## 这版做到了什么")
-        self.assertLess(install_prompt_end, quick_hook_guide)
-        self.assertLess(quick_hook_guide, feature_overview)
+        for hook_name in (
+            "SessionStart → codex_context.py",
+            "UserPromptSubmit → codex_prompt_context.py",
+            "PreToolUse → codex_image_guard.py",
+            "PostToolUse → codex_image_receipt.py",
+        ):
+            self.assertIn(hook_name, install_prompt)
+        usage_overview = readme.index("## 装好以后怎么用")
+        self.assertLess(install_prompt_end, usage_overview)
 
 
 if __name__ == "__main__":
