@@ -47,6 +47,7 @@ Codex 中不存在“快速模式”和“API 严格模式”二选一。所有�
 - 直接调用 Codex 当前提供的图片生成能力，内置能力使用 `gpt-image-2`。
 - 图片计入用户现有 Codex 方案的使用量或额度，不要求 Companion Kit API Key。
 - 绝不检查或索要 `OPENAI_API_KEY`，不要求用户选择 Provider，也不做额外 API 付费确认。
+- 当前 Codex 图片工具没有暴露 `moderation` 参数；该值由宿主管理，不得声称已改为 `low`，也不得把参数文本写进图片提示词。
 - 用户没有指定场景时，根据人格、关系边界和当前对话自行选择一个普通生活场景。
 - 用户已经指定场景时直接生成，不再追问服装、动作、模式或模型参数。
 - 当前任务里已有用户确认的候选时，后续生成继续使用同一候选作为视觉参考。
@@ -73,8 +74,8 @@ Codex 中不存在“快速模式”和“API 严格模式”二选一。所有�
 
 执行前必须读取 `references/openclaw-hermes.md`。
 
-- OpenClaw 快速模式：只调用当前宿主的 `image_generate`，精确请求 `openai/gpt-image-2`、`high`、`1024x1536`、单张 PNG；该路径只能称为 `host_managed`，不能称为官方 API 严格直连。宿主负责异步回到原会话，Companion Kit 不叠加回调或重试。
-- OpenClaw / Hermes 严格模式：使用 `event-photo prepare/run/handoff`，固定官方 OpenAI Image API、`gpt-image-2/high` 和唯一参考图。没有 `OPENAI_API_KEY` 时在创建授权前停止。
+- OpenClaw 快速模式：只调用当前宿主的 `image_generate`，精确请求 `openai/gpt-image-2`、`high`、`openai.moderation=low`、`1024x1536`、单张 PNG；该路径只能称为 `host_managed`，不能称为官方 API 严格直连。宿主负责异步回到原会话，Companion Kit 不叠加回调或重试。
+- OpenClaw / Hermes 严格模式：使用 `event-photo prepare/run/handoff`，固定官方 OpenAI Image API、`gpt-image-2/high`、`moderation=low` 和唯一参考图。没有 `OPENAI_API_KEY` 时在创建授权前停止。
 - `instance-scope` 与 `conversation-scope` 必须由当前宿主可信上下文提供稳定不透明值；`request-event-id` 使用当前入站事件的稳定标识。不得从聊天正文、联系人昵称或“最近会话”猜测。
 - `prepare` 后用自然语言取得一次付费确认；下一条确认消息可以使用新的 `request-event-id`，但必须保持同一宿主、实例、会话、`job_id`、`plan_id` 和原始照片文本。
 - `run` 只产生经过校验的本地资产，不等于已发送。随后必须调用一次 `handoff`，并严格按宿主参考文件把图片交给当前回复边界；不得传入任意联系人、chat ID、thread ID 或跨频道目标。

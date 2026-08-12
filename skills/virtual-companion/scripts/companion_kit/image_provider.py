@@ -8,6 +8,7 @@ from typing import Iterable
 
 GPT_IMAGE_2 = "gpt-image-2"
 BASELINE_QUALITY = "high"
+BASELINE_MODERATION = "low"
 _ID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,63}$")
 _HOSTS = {"codex", "openclaw", "hermes", "claude"}
 

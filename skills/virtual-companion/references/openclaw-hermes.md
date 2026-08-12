@@ -35,6 +35,8 @@ action: generate
 prompt: <decision.photo_prompt>
 model: openai/gpt-image-2
 quality: high
+openai:
+  moderation: low
 size: 1024x1536
 outputFormat: png
 count: 1
@@ -46,7 +48,7 @@ count: 1
 
 ## 两宿主的严格固定形象模式
 
-严格模式固定官方 OpenAI Image API、`gpt-image-2`、`high`、单张 PNG，不接受自定义网关，不降级、不自动重试。它使用三个宿主提供的不透明上下文：
+严格模式固定官方 OpenAI Image API、`gpt-image-2`、`high`、`moderation=low`、单张 PNG，不接受自定义网关，不降级、不自动重试。`low` 是 OpenAI 官方提供的较低限制级别，并不关闭内容安全审核。它使用三个宿主提供的不透明上下文：
 
 - `instance-scope`：当前安装实例内稳定；
 - `conversation-scope`：当前会话内稳定；

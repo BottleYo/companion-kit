@@ -30,7 +30,7 @@ class RecordingTransport:
 
 
 class OpenAIImageClientTests(unittest.TestCase):
-    def test_generation_uses_fixed_official_endpoint_model_and_high_quality(self) -> None:
+    def test_generation_uses_fixed_model_quality_and_low_moderation(self) -> None:
         transport = RecordingTransport()
         client = OpenAIImageClient(
             env={"OPENAI_API_KEY": "test-only-key"},
@@ -45,6 +45,7 @@ class OpenAIImageClientTests(unittest.TestCase):
         self.assertEqual(request.url, "https://api.openai.com/v1/images/generations")
         self.assertEqual(payload["model"], "gpt-image-2")
         self.assertEqual(payload["quality"], "high")
+        self.assertEqual(payload["moderation"], "low")
         self.assertEqual(payload["output_format"], "png")
         self.assertEqual(result.request_id, "req_test_123")
         self.assertEqual(result.image_bytes, tiny_png())
@@ -65,6 +66,8 @@ class OpenAIImageClientTests(unittest.TestCase):
         self.assertIn(b"gpt-image-2", request.body)
         self.assertIn(b'name="quality"', request.body)
         self.assertIn(b"high", request.body)
+        self.assertIn(b'name="moderation"', request.body)
+        self.assertIn(b"low", request.body)
         self.assertIn(b'name="image"; filename="reference.png"', request.body)
 
     def test_missing_key_and_provider_error_fail_closed_without_leaking_body(self) -> None:

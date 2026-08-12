@@ -21,6 +21,10 @@ class EventAdapterTests(unittest.TestCase):
         self.assertEqual(request["arguments"]["quality"], "high")
         self.assertEqual(request["arguments"]["count"], 1)
         self.assertEqual(request["arguments"]["outputFormat"], "png")
+        self.assertEqual(
+            request["arguments"]["openai"],
+            {"moderation": "low"},
+        )
         self.assertEqual(request["proof"], "host_managed")
         self.assertNotIn("target", request["arguments"])
 

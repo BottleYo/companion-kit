@@ -635,6 +635,10 @@ class CliTests(unittest.TestCase):
                 "无需单独配置",
             )
             self.assertEqual(set(payload["modes"]), {"codex_native"})
+            self.assertEqual(
+                payload["modes"]["codex_native"]["moderation_control"],
+                "host_managed",
+            )
             self.assertFalse(payload["api_key_required"])
             self.assertFalse(payload["provider_choice_required"])
             self.assertEqual(
@@ -752,6 +756,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(status_code, 0)
             self.assertEqual(status_payload["host"], "hermes")
             self.assertFalse(status_payload["strict"]["auth_ready"])
+            self.assertEqual(status_payload["strict"]["moderation"], "low")
             self.assertNotIn("native_preview", status_payload)
             self.assertFalse((root / "hosts" / "hermes" / "private").exists())
 
@@ -863,6 +868,8 @@ class CliTests(unittest.TestCase):
                 payload["native_preview"]["model_request"],
                 "openai/gpt-image-2",
             )
+            self.assertEqual(payload["native_preview"]["moderation_request"], "low")
+            self.assertEqual(payload["strict"]["moderation"], "low")
             self.assertFalse(payload["strict"]["auth_ready"])
 
     def test_event_prepare_without_key_creates_neither_job_nor_authorization(self) -> None:

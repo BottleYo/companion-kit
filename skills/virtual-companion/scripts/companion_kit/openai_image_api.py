@@ -10,7 +10,7 @@ import urllib.request
 import uuid
 
 from .image_assets import ImageAssetError, sanitize_png
-from .image_provider import BASELINE_QUALITY, GPT_IMAGE_2
+from .image_provider import BASELINE_MODERATION, BASELINE_QUALITY, GPT_IMAGE_2
 
 
 class ImageApiError(ValueError):
@@ -98,7 +98,7 @@ def _multipart_field(boundary: str, name: str, value: str) -> bytes:
 
 
 class OpenAIImageClient:
-    """固定官方端点、模型与画质；不读取配置文件，也不自动重试。"""
+    """固定官方端点、模型、画质与审核级别；不读配置，也不自动重试。"""
 
     def __init__(
         self,
@@ -176,6 +176,7 @@ class OpenAIImageClient:
             "model": GPT_IMAGE_2,
             "prompt": _prompt(prompt),
             "quality": BASELINE_QUALITY,
+            "moderation": BASELINE_MODERATION,
             "size": _OUTPUT_SIZE,
             "output_format": _OUTPUT_FORMAT,
             "n": 1,
@@ -203,6 +204,7 @@ class OpenAIImageClient:
                 _multipart_field(boundary, "model", GPT_IMAGE_2),
                 _multipart_field(boundary, "prompt", _prompt(prompt)),
                 _multipart_field(boundary, "quality", BASELINE_QUALITY),
+                _multipart_field(boundary, "moderation", BASELINE_MODERATION),
                 _multipart_field(boundary, "size", _OUTPUT_SIZE),
                 _multipart_field(boundary, "output_format", _OUTPUT_FORMAT),
                 (
