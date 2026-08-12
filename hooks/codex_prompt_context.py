@@ -76,6 +76,7 @@ def main() -> int:
             previous_image_kind=store.latest_result_state(
                 profile_id=runtime.profile.id,
                 session_id=session_id,
+                identity_version=runtime.profile.visual.identity_version,
             ),
         )
         if intent.kind is CodexTurnKind.PASS_THROUGH:

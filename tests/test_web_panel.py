@@ -11,6 +11,7 @@ from unittest.mock import patch
 from companion_kit.web_panel import create_panel_server
 from companion_kit.identity_pack import PROFILE_FACE
 from companion_kit.image_assets import ImageAssetStore
+from companion_kit.profile_store import ProfileConflict
 from tests.png_fixture import tiny_png
 
 
@@ -95,7 +96,9 @@ class WebPanelTests(unittest.TestCase):
                 self.assertIn(b'id="applyUpgrade"', payload)
                 self.assertIn(b'id="copyHooksCommand"', payload)
                 self.assertIn(b'id="confirmHooksReviewed"', payload)
+                self.assertIn(b'id="replaceIdentity"', payload)
                 self.assertIn("设为固定主脸".encode("utf-8"), payload)
+                self.assertIn("更换主脸".encode("utf-8"), payload)
                 self.assertIn("default-src 'self'", response.getheader("Content-Security-Policy"))
                 self.assertEqual(response.getheader("Cache-Control"), "no-store")
 
@@ -161,7 +164,7 @@ class WebPanelTests(unittest.TestCase):
             def to_dict(self) -> dict[str, object]:
                 return {
                     "ready": True,
-                    "release_version": "0.7.0-dev.8",
+                    "release_version": "0.7.0-dev.9",
                     "marketplace_source_type": "local",
                     "update_candidate": True,
                 }
@@ -193,7 +196,7 @@ class WebPanelTests(unittest.TestCase):
             def to_dict(self) -> dict[str, object]:
                 return {
                     "from_version": "0.7.0-dev.4",
-                    "to_version": "0.7.0-dev.8",
+                    "to_version": "0.7.0-dev.9",
                     "backup_id": "20260806T080000Z-deadbeef",
                     "applied": True,
                     "durable_data_replaced": False,
@@ -359,7 +362,7 @@ class WebPanelTests(unittest.TestCase):
             self.assertEqual(unauthorized_preview.status, 401)
             self.assertFalse(any((root / "private" / "images").rglob("pending.png")))
 
-    def test_identity_upload_cannot_replace_a_locked_face(self) -> None:
+    def test_identity_upload_replaces_locked_face_as_a_new_identity_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             with running_panel(root) as (server, _):
@@ -382,24 +385,251 @@ class WebPanelTests(unittest.TestCase):
                     identity_version=1,
                     task_scope="existing-face",
                 )
-                server.store.bind_reference(
+                bound = server.store.bind_reference(
                     reference_id=reference.reference_id,
                     identity_version=1,
                     expected_version=snapshot.version,
                 )
+                supplemental = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(rgba=b"\x60\x40\x20\xff"),
+                    task_scope="existing-profile-face",
+                    role=PROFILE_FACE,
+                    primary_reference_id=reference.reference_id,
+                )
+                assets.confirm_candidate(
+                    candidate_id=supplemental.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="existing-profile-face",
+                )
+                server.hook_health_store.record_success("session_start")
+                before_state_response, before_state_body = request(
+                    server,
+                    "GET",
+                    "/api/state",
+                    token="test-panel-token",
+                )
+                before_state = json.loads(before_state_body)
+                relationship_path = root / "private" / "relationships.sqlite3"
+                relationship_path.parent.mkdir(parents=True, exist_ok=True)
+                relationship_path.write_bytes(b"important-relationship-history")
+                replacement_bytes = tiny_png(rgba=b"\x80\x40\x20\xff")
 
-                response, _ = request(
+                staged, staged_body = request(
                     server,
                     "POST",
                     "/api/identity/candidate",
                     token="test-panel-token",
                     origin=origin,
-                    raw=tiny_png(rgba=b"\x80\x40\x20\xff"),
+                    raw=replacement_bytes,
                     content_type="image/png",
                     extra_headers={"X-Companion-Image-Consent": "adult-authorized"},
                 )
+                staged_payload = json.loads(staged_body)
+                confirmed, confirmed_body = request(
+                    server,
+                    "POST",
+                    "/api/identity/confirm",
+                    token="test-panel-token",
+                    origin=origin,
+                    body={
+                        "candidate_id": staged_payload["candidate"]["candidate_id"],
+                        "profile_version": staged_payload["candidate"]["profile_version"],
+                        "confirm": True,
+                    },
+                )
+                confirmed_payload = json.loads(confirmed_body)
+                current = server.store.read()
+                assert current is not None
+                old_pack = assets.resolve_identity_pack(
+                    primary_reference_id=reference.reference_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                )
+                new_pack = assets.resolve_identity_pack(
+                    primary_reference_id=current.profile.visual.reference_ids[0],
+                    profile_id=snapshot.profile.id,
+                    identity_version=2,
+                )
+                primary_response, primary_body = request(
+                    server,
+                    "GET",
+                    "/api/identity/primary",
+                    token="test-panel-token",
+                )
+                after_state_response, after_state_body = request(
+                    server,
+                    "GET",
+                    "/api/state",
+                    token="test-panel-token",
+                )
+                after_state = json.loads(after_state_body)
 
-            self.assertEqual(response.status, 409)
+            self.assertEqual(staged.status, 201)
+            self.assertEqual(before_state_response.status, 200)
+            self.assertTrue(before_state["runtime_readiness"]["session_loaded"])
+            self.assertEqual(staged_payload["candidate"]["identity_version"], 2)
+            self.assertEqual(staged_payload["candidate"]["operation"], "replace_primary")
+            self.assertEqual(confirmed.status, 200)
+            self.assertEqual(
+                confirmed_payload["profile"]["visual_identity"]["identity_version"],
+                2,
+            )
+            self.assertEqual(current.profile.display_name, bound.profile.display_name)
+            self.assertEqual(old_pack.roles, ("primary_face", "profile_face"))
+            self.assertEqual(new_pack.roles, ("primary_face",))
+            self.assertNotEqual(
+                current.profile.visual.reference_ids,
+                bound.profile.visual.reference_ids,
+            )
+            self.assertEqual(
+                relationship_path.read_bytes(),
+                b"important-relationship-history",
+            )
+            self.assertEqual(primary_response.status, 200)
+            self.assertEqual(primary_body, replacement_bytes)
+            self.assertEqual(after_state_response.status, 200)
+            self.assertFalse(after_state["runtime_readiness"]["session_loaded"])
+
+    def test_staged_replacement_does_not_change_active_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                origin = f"http://127.0.0.1:{server.server_port}"
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                assets = ImageAssetStore(root / "private" / "images")
+                candidate = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(),
+                    task_scope="active-face",
+                )
+                primary = assets.confirm_candidate(
+                    candidate_id=candidate.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="active-face",
+                )
+                bound = server.store.bind_reference(
+                    reference_id=primary.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+
+                staged, staged_body = request(
+                    server,
+                    "POST",
+                    "/api/identity/candidate",
+                    token="test-panel-token",
+                    origin=origin,
+                    raw=tiny_png(rgba=b"\x10\x90\x40\xff"),
+                    content_type="image/png",
+                    extra_headers={"X-Companion-Image-Consent": "adult-authorized"},
+                )
+                current = server.store.read()
+
+            self.assertEqual(staged.status, 201, staged_body)
+            self.assertIsNotNone(current)
+            assert current is not None
+            self.assertEqual(current.version, bound.version)
+            self.assertEqual(current.profile.visual.identity_version, 1)
+            self.assertEqual(
+                current.profile.visual.reference_ids,
+                bound.profile.visual.reference_ids,
+            )
+
+    def test_failed_replacement_keeps_current_face_and_restores_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with running_panel(root) as (server, _):
+                origin = f"http://127.0.0.1:{server.server_port}"
+                snapshot = server.store.save(
+                    template_id="warm_healer",
+                    display_name="小禾",
+                    expected_version=None,
+                )
+                assets = ImageAssetStore(root / "private" / "images")
+                initial = assets.store_candidate(
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    image_bytes=tiny_png(),
+                    task_scope="rollback-current",
+                )
+                primary = assets.confirm_candidate(
+                    candidate_id=initial.candidate_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                    task_scope="rollback-current",
+                )
+                bound = server.store.bind_reference(
+                    reference_id=primary.reference_id,
+                    identity_version=1,
+                    expected_version=snapshot.version,
+                )
+                replacement_bytes = tiny_png(rgba=b"\x70\x30\x50\xff")
+                staged, staged_body = request(
+                    server,
+                    "POST",
+                    "/api/identity/candidate",
+                    token="test-panel-token",
+                    origin=origin,
+                    raw=replacement_bytes,
+                    content_type="image/png",
+                    extra_headers={"X-Companion-Image-Consent": "adult-authorized"},
+                )
+                staged_payload = json.loads(staged_body)
+                with patch.object(
+                    server.store,
+                    "rotate_reference",
+                    side_effect=ProfileConflict("Persona 同时发生了变化"),
+                ):
+                    failed, failed_body = request(
+                        server,
+                        "POST",
+                        "/api/identity/confirm",
+                        token="test-panel-token",
+                        origin=origin,
+                        body={
+                            "candidate_id": staged_payload["candidate"]["candidate_id"],
+                            "profile_version": staged_payload["candidate"]["profile_version"],
+                            "confirm": True,
+                        },
+                    )
+                failed_payload = json.loads(failed_body)
+                current = server.store.read()
+                assert current is not None
+                restored_candidate = assets.read_candidate_bytes(
+                    candidate_id=staged_payload["candidate"]["candidate_id"],
+                    profile_id=snapshot.profile.id,
+                    identity_version=2,
+                    task_scope="web-panel:test-panel-token",
+                )
+                current_pack = assets.resolve_identity_pack(
+                    primary_reference_id=primary.reference_id,
+                    profile_id=snapshot.profile.id,
+                    identity_version=1,
+                )
+
+            self.assertEqual(staged.status, 201)
+            self.assertEqual(failed.status, 409)
+            self.assertEqual(failed_payload["retry_profile_version"], bound.version)
+            self.assertEqual(current.version, bound.version)
+            self.assertEqual(current.profile.visual.identity_version, 1)
+            self.assertEqual(
+                current.profile.visual.reference_ids,
+                (primary.reference_id,),
+            )
+            self.assertEqual(restored_candidate, replacement_bytes)
+            self.assertEqual(current_pack.primary_reference_id, primary.reference_id)
+            self.assertFalse(
+                (root / "private" / "images" / "identities" / "companion" / "v2" / "pack.json").exists()
+            )
 
     def test_flat_custom_profile_keeps_images_beside_its_own_private_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -443,7 +673,7 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.7.0-dev.8")
+                self.assertEqual(payload["version"], "0.7.0-dev.9")
                 self.assertIn("codex_native", payload["photo_modes"])
                 self.assertIn("identity_reuse", payload["photo_modes"])
                 self.assertNotIn("openai_strict", payload["photo_modes"])

@@ -324,6 +324,72 @@ class ProfileStore:
             except (OSError, InitializationError, InterprocessLockError) as exc:
                 raise ProfileStoreError(str(exc)) from exc
 
+    def rotate_reference(
+        self,
+        *,
+        reference_id: str,
+        current_reference_id: str,
+        current_identity_version: int,
+        next_identity_version: int,
+        expected_version: str,
+    ) -> ProfileSnapshot:
+        """切换到新的主脸版本；旧身份资产由资产层保留，不在这里删除。"""
+
+        for value in (reference_id, current_reference_id):
+            if not _REFERENCE_ID_RE.fullmatch(str(value or "")):
+                raise ProfileStoreError("reference_id 格式无效")
+        for value in (current_identity_version, next_identity_version):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise ProfileStoreError("identity_version 必须是正整数")
+        if next_identity_version != current_identity_version + 1:
+            raise ProfileStoreError("新身份版本必须紧接当前版本")
+        with self._write_lock:
+            try:
+                self.profile_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                if os.name != "nt":
+                    self.profile_path.parent.chmod(0o700)
+                safe_profile_path(self.profile_path)
+                safe_profile_path(self._lock_path)
+                with exclusive_file_lock(self._lock_path):
+                    current = self.read()
+                    if current is None:
+                        raise ProfileConflict("人格配置不存在，请先完成初始化")
+                    if current.version != expected_version:
+                        raise ProfileConflict("人格配置已变化，请重新确认候选原型")
+                    if (
+                        current.profile.visual.identity_version
+                        != current_identity_version
+                        or current.profile.visual.reference_ids
+                        != (current_reference_id,)
+                        or not current.profile.visual.is_locked
+                    ):
+                        raise ProfileConflict("当前人物身份已变化，请重新开始更换主脸")
+                    updated = replace(
+                        current.profile,
+                        visual=replace(
+                            current.profile.visual,
+                            identity_status="locked",
+                            identity_anchor=(
+                                current.profile.visual.identity_anchor
+                                or "脸部身份以用户已确认的唯一主脸参考为准"
+                            ),
+                            identity_version=next_identity_version,
+                            reference_ids=(reference_id,),
+                        ),
+                    )
+                    save_profile_document(
+                        profile=updated,
+                        output=self.profile_path,
+                        force=True,
+                        private_parent=True,
+                    )
+                    saved = self.read()
+                    if saved is None:
+                        raise ProfileStoreError("人格配置保存后未找到")
+                    return saved
+            except (OSError, InitializationError, InterprocessLockError) as exc:
+                raise ProfileStoreError(str(exc)) from exc
+
     def _save_locked(
         self,
         *,

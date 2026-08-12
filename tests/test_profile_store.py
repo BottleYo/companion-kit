@@ -42,6 +42,41 @@ class ProfileStoreTests(unittest.TestCase):
             )
             self.assertEqual(bound.profile.visual.identity_status, "locked")
 
+    def test_rotate_reference_advances_only_visual_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            profile_path = Path(tmp).resolve() / "profiles" / "default.toml"
+            store = ProfileStore(skill_root=SKILL_ROOT, profile_path=profile_path)
+            created = store.save(
+                template_id="warm_healer",
+                display_name="小禾",
+                expected_version=None,
+                starting_mode="familiar",
+                romance_enabled=True,
+            )
+            bound = store.bind_reference(
+                reference_id="ref_1234567890abcdef",
+                identity_version=1,
+                expected_version=created.version,
+            )
+
+            rotated = store.rotate_reference(
+                reference_id="ref_fedcba0987654321",
+                current_reference_id="ref_1234567890abcdef",
+                current_identity_version=1,
+                next_identity_version=2,
+                expected_version=bound.version,
+            )
+
+            self.assertEqual(rotated.profile.display_name, "小禾")
+            self.assertEqual(rotated.profile.relationship.starting_mode, "familiar")
+            self.assertTrue(rotated.profile.relationship.romance_enabled)
+            self.assertEqual(rotated.profile.visual.identity_version, 2)
+            self.assertEqual(
+                rotated.profile.visual.reference_ids,
+                ("ref_fedcba0987654321",),
+            )
+            self.assertEqual(rotated.profile.visual.identity_status, "locked")
+
     def test_catalog_exposes_only_generic_template_previews(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ProfileStore(

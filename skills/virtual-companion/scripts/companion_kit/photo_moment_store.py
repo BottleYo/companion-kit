@@ -25,7 +25,7 @@ PHOTO_MOMENT_HISTORY_SCHEMA_VERSION = 2
 PHOTO_MOMENT_PENDING_SCHEMA_VERSION = 2
 _SUPPORTED_PHOTO_MOMENT_STORE_VERSIONS = frozenset({1, 2})
 PHOTO_TURN_SCHEMA_VERSION = 1
-PHOTO_RESULT_SCHEMA_VERSION = 2
+PHOTO_RESULT_SCHEMA_VERSION = 3
 LATEST_RESULT_MISSING = "missing"
 LATEST_RESULT_GENERIC = "generic"
 LATEST_RESULT_COMPANION = "companion"
@@ -52,6 +52,7 @@ _RESULT_KEYS = {
     "profile_digest",
     "created_at",
     "is_companion",
+    "identity_version",
     "image_digests",
 }
 _RESULT_ENTRY_KEYS = {"path_sha256", "raw_sha256"}
@@ -92,6 +93,12 @@ def _digest(label: str, value: str) -> str:
     ):
         raise PhotoMomentStoreError(f"{label}无效")
     return sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _identity_version(value: object) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise PhotoMomentStoreError("人物身份版本无效")
+    return value
 
 
 def _call_digest(session_id: str, tool_use_id: str) -> str:
@@ -378,7 +385,9 @@ class PhotoMomentStore:
         session_id: str,
         paths: tuple[str | Path, ...],
         is_companion: bool,
+        identity_version: int,
     ) -> None:
+        version = _identity_version(identity_version)
         image_digests: list[dict[str, str]] = []
         for raw_path in paths[:8]:
             candidate = Path(raw_path).expanduser()
@@ -419,13 +428,21 @@ class PhotoMomentStore:
                         "profile_digest": _digest("Persona", profile_id),
                         "created_at": self._now().isoformat(),
                         "is_companion": bool(is_companion),
+                        "identity_version": version,
                         "image_digests": image_digests,
                     },
                 )
         except (OSError, InterprocessLockError) as exc:
             raise PhotoMomentStoreError("无法保存当前任务图片类型回执") from exc
 
-    def _load_result(self, *, profile_id: str, session_id: str) -> dict[str, object] | None:
+    def _load_result(
+        self,
+        *,
+        profile_id: str,
+        session_id: str,
+        identity_version: int,
+    ) -> dict[str, object] | None:
+        version = _identity_version(identity_version)
         raw = _read_json(self._result_path(session_id))
         if raw is None:
             return None
@@ -435,6 +452,9 @@ class PhotoMomentStore:
             or raw.get("schema_version") != PHOTO_RESULT_SCHEMA_VERSION
             or raw.get("profile_digest") != _digest("Persona", profile_id)
             or not isinstance(raw.get("is_companion"), bool)
+            or not isinstance(raw.get("identity_version"), int)
+            or isinstance(raw.get("identity_version"), bool)
+            or int(raw.get("identity_version", 0)) < 1
             or not isinstance(image_digests, list)
             or not image_digests
             or len(image_digests) > 8
@@ -449,6 +469,8 @@ class PhotoMomentStore:
             )
         ):
             raise PhotoMomentStoreError("当前任务图片类型回执结构无效")
+        if raw["identity_version"] != version:
+            return None
         created = raw.get("created_at")
         if not isinstance(created, str):
             raise PhotoMomentStoreError("当前任务图片类型回执时间无效")
@@ -472,10 +494,12 @@ class PhotoMomentStore:
         *,
         profile_id: str,
         session_id: str,
+        identity_version: int,
     ) -> bool:
         return self.latest_result_state(
             profile_id=profile_id,
             session_id=session_id,
+            identity_version=identity_version,
         ) == LATEST_RESULT_COMPANION
 
     def latest_result_state(
@@ -483,9 +507,14 @@ class PhotoMomentStore:
         *,
         profile_id: str,
         session_id: str,
+        identity_version: int,
     ) -> str:
         try:
-            raw = self._load_result(profile_id=profile_id, session_id=session_id)
+            raw = self._load_result(
+                profile_id=profile_id,
+                session_id=session_id,
+                identity_version=identity_version,
+            )
         except PhotoMomentStoreError:
             return LATEST_RESULT_MISSING
         if raw is None:
@@ -502,8 +531,13 @@ class PhotoMomentStore:
         profile_id: str,
         session_id: str,
         source_path: str | Path,
+        identity_version: int,
     ) -> None:
-        raw = self._load_result(profile_id=profile_id, session_id=session_id)
+        raw = self._load_result(
+            profile_id=profile_id,
+            session_id=session_id,
+            identity_version=identity_version,
+        )
         candidate = Path(source_path).expanduser()
         if not candidate.is_absolute():
             raise PhotoMomentStoreError("编辑目标必须是绝对路径")
