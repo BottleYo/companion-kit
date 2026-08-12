@@ -20,7 +20,7 @@
 - 多宿主是发行目标，不是当前并行开发要求；Codex 体验验收拥有最高优先级。
 - Content Studio 只作为质量与思路参考，不搬运重型工作流或数据模型。
 - Codex 只使用内置 `gpt-image-2` 图片能力，计入 Codex 方案用量；不配置 API Key，不选择 Provider。
-- OpenClaw 与 Hermes 的独立严格路径仍固定官方 `gpt-image-2`、`high` 与参考图编辑；不能证明时关闭，不静默降级。
+- OpenClaw 与 Hermes 的独立严格路径仍固定官方 `gpt-image-2`、`high`、`moderation=low` 与参考图编辑；不能证明时关闭，不静默降级。
 - Codex 照片意图直接进入宿主内置生图；事件型宿主的照片意图仍不等于额外 API 付费授权。
 - 只处理成年人或虚构成年人物；用户可在面板亲手选择或在 Codex 当前任务提供有权使用的参考。面板不扫描照片目录、不接收任意路径，项目不得在未获授权时复刻真人。
 - 关系是多维状态而非单一等级；长期关系不因闲置自动衰减，短期气氛有 TTL。
@@ -44,7 +44,7 @@
 
 ### 独立 API 技术流程
 
-- 固定官方 Image API、`gpt-image-2`、`high`、PNG、单张输出；
+- 固定官方 Image API、`gpt-image-2`、`high`、`moderation=low`、PNG、单张输出；
 - 新身份使用 `generations`，固定后使用唯一参考图 `edits`；
 - `OPENAI_API_KEY` 只读当前进程环境；
 - 十分钟、摘要绑定、单次消费的付费授权；
@@ -69,7 +69,7 @@
 
 ### 已实现
 
-- OpenClaw 原生快速模式精确请求 `openai/gpt-image-2/high`，但诚实标为 `host_managed`；异步回原会话和补缺由宿主独占。
+- OpenClaw 原生快速模式精确请求 `openai/gpt-image-2/high` 与 `openai.moderation=low`，但诚实标为 `host_managed`；异步回原会话和补缺由宿主独占。
 - OpenClaw 与 Hermes 严格模式复用官方 direct API、PNG 清洗与唯一参考图逻辑，不复用 Codex 的本地附件语义。
 - 人格、授权、图片和事件作业按宿主默认隔离，不读取或迁移私人宿主配置。
 - 事件作业按首次入站事件去重；付费确认可跨下一条事件继续，同一生成和 handoff 都只能 claim 一次。
@@ -87,7 +87,7 @@
 
 ## 阶段 4：Codex 自然体验闭环（当前 P0）
 
-当前进度：`0.7.0-dev.9` 已完成完整 Plugin 安装、四个 Hook 的审核引导与最小运行回执、轻量 `SessionStart` Persona、按照片回合加载身份与配方、图片参数保护、图文联动、一句话 Persona v3 草稿、面板参考图上传、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack、跨任务取回、安全更换主脸和本地 Codex 安全升级。主脸轮换会创建新的身份版本，保留 Persona、关系、历史和旧 Identity Pack，并阻止旧侧脸、体型与旧成图混入新身份。PhotoMoment v2 已把表情与妆容变成独立造型轴，同时兼容旧历史。面板不再把安装成功等同于运行就绪；只有当前 Persona、主脸和 `SessionStart` 均验证才显示可以使用。升级会先校验用户恢复点和旧程序快照，再切换 Plugin；版本或 Hook bundle 变化会让旧回执过期，但不会覆盖用户资料。Codex Plugin 不再暴露独立 Skill，也不检查或改动用户级 Skill 目录。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
+当前进度：`0.7.0-dev.10` 已完成完整 Plugin 安装、四个 Hook 的审核引导与最小运行回执、轻量 `SessionStart` Persona、按照片回合加载身份与配方、图片参数保护、图文联动、一句话 Persona v3 草稿、面板参考图上传、当前任务图片回执，以及候选暂存、明确确认、轻量 Identity Pack、跨任务取回、安全更换主脸和本地 Codex 安全升级。主脸轮换会创建新的身份版本，保留 Persona、关系、历史和旧 Identity Pack，并阻止旧侧脸、体型与旧成图混入新身份。PhotoMoment v2 已把表情与妆容变成独立造型轴，同时兼容旧历史。OpenAI Image API 与当前 OpenClaw 原生图片请求在宿主支持时默认使用 `moderation=low`；Codex 当前未暴露该参数，继续由宿主管理。面板不再把安装成功等同于运行就绪；只有当前 Persona、主脸和 `SessionStart` 均验证才显示可以使用。升级会先校验用户恢复点和旧程序快照，再切换 Plugin；版本或 Hook bundle 变化会让旧回执过期，但不会覆盖用户资料。Codex Plugin 不再暴露独立 Skill，也不检查或改动用户级 Skill 目录。Persona 仍只保存一条主脸 ID；侧脸与体型是同一身份版本的可选私有成员。真实聊天关系事件与跨机器 Codex 人工验收仍在继续。
 
 ### 4.1 一次性初始化
 

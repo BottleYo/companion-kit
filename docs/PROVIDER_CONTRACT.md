@@ -1,10 +1,12 @@
-# 图片 Provider 能力契约（v5）
+# 图片 Provider 能力契约（v6）
 
 ## Codex 先走宿主能力
 
 Codex 不进入 Companion Kit Provider 选择。人物原型、日常照片和参考图编辑都直接调用 Codex 内置图片生成能力。内置能力使用 `gpt-image-2`，消耗用户现有 Codex 方案的使用量或额度。
 
 Codex 路径不得读取或索要 `OPENAI_API_KEY`，不得展示 Provider 选择，也不得把固定人物包装成另一套 API 严格模式。跨任务参考由已确认的私有 Identity Pack 提供；Runtime 按画面要求图片工具使用主脸以及至多一张对应补充，但实际参考参数仍需端到端验收。任一已登记成员不可用时应暂停该人物生图，不能引导用户改走独立 API，也不能静默用纯文字重建另一张脸。
+
+当前 Codex 图片工具契约没有暴露 `moderation` 参数，因此该值由 Codex 宿主管理。Companion Kit 不伪造“已设为 low”，也不把参数文本塞进提示词；以后只有宿主正式暴露该字段时才接入。
 
 ## 质量基线
 
@@ -13,19 +15,20 @@ OpenClaw / Hermes 的独立严格模式固定：
 - 官方 OpenAI Image API；
 - 实际请求模型 `gpt-image-2`；
 - 请求画质 `high`；
+- 内容审核级别 `low`；
 - 新身份原型使用 `images/generations`；
 - 固定身份后的照片使用 `images/edits` 与唯一参考图；
 - 结果只能返回当前任务或当前入站会话。
 
 缺少任一项时，严格照片能力关闭；聊天和原有问题解决继续工作。不得静默改用其他模型、兼容网关、占位图片或不明图片网站。
 
-`quality=high` 是请求参数证明，不是审美质量或像素级人物一致性的保证。
+`moderation=low` 使用 OpenAI 官方提供的较低限制级别，并不关闭内容安全审核。`quality=high` 是请求参数证明，不是审美质量或像素级人物一致性的保证。参数定义见 [OpenAI Images API Reference](https://developers.openai.com/api/reference/resources/images/)。
 
 ## 两种证据不能混写
 
 图片路由的证明级别分为：
 
-- `direct_request`：执行器固定直连官方端点，并把 `gpt-image-2` 与 `high` 写入不可变请求；这是当前严格 API 路径使用的请求侧证明。
+- `direct_request`：执行器固定直连官方端点，并把 `gpt-image-2`、`high` 与 `moderation=low` 写入不可变请求；这是当前严格 API 路径使用的请求侧证明。
 - `receipt_verified`：只有 Provider 响应确实回显模型与画质时才使用；不能用本地请求值伪造回执字段。
 - `host_managed`：宿主负责模型、上游或交付，项目无法取得同等级证明；Codex 内置生图和 OpenClaw 原生快速模式属于此类。
 - `unverified`：兼容协议但无法独立验证实际上游，只能在普通模式由用户明确开启，永远不能进入严格模式。
@@ -59,7 +62,7 @@ Codex 固定使用宿主内置图片能力，不运行这套路由排序。其�
 
 Codex 内置生图无需 Companion Kit API Key。人物原型、日常照片和参考图编辑都是正式的 Codex 产品路径，不再称为只可快速预览。模型和计量由 Codex 管理；本项目不向用户承诺单独的 `quality=high` 请求证明。固定身份由参考图是否成功复用来验收，不通过切换 Provider 来证明。
 
-OpenClaw 原生快速模式精确请求 `openai/gpt-image-2`、`high`、`1024x1536`、单张 PNG，并由宿主异步返回原会话。显式请求值不能排除 OAuth、自定义 Provider 或宿主路由，所以证明仍是 `host_managed`。OpenClaw 独占其后台回调和幂等补缺；Companion Kit 不建立第二套轮询、回调或重投。
+OpenClaw 原生快速模式精确请求 `openai/gpt-image-2`、`high`、`openai.moderation=low`、`1024x1536`、单张 PNG，并由宿主异步返回原会话。显式请求值不能排除 OAuth、自定义 Provider 或宿主路由，所以证明仍是 `host_managed`。OpenClaw 独占其后台回调和幂等补缺；Companion Kit 不建立第二套轮询、回调或重投。
 
 Hermes 当前没有单独开放的通用原生快速模式；Claude 当前没有已证明的图片执行路径。
 
@@ -69,7 +72,7 @@ Hermes 当前没有单独开放的通用原生快速模式；Claude 当前没有
 
 - URL 只能是 `https://api.openai.com/v1/images/generations` 或 `/edits`；
 - 凭据只读取当前进程的 `OPENAI_API_KEY`；
-- 模型、画质、PNG 输出、单张请求固定；
+- 模型、画质、`moderation=low`、PNG 输出、单张请求固定；
 - 不接受自定义 base URL，不调用兼容网关；
 - 网络、限额、审核或解析失败时不自动重试；
 - 错误信息不回显 Provider 响应正文、授权头或 Key。

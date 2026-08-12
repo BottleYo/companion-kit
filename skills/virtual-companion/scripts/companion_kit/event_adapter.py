@@ -5,6 +5,7 @@ import os
 import stat
 
 from .image_assets import ImageAssetError, sanitize_png
+from .image_provider import BASELINE_MODERATION
 
 
 class EventAdapterError(ValueError):
@@ -40,6 +41,7 @@ def openclaw_native_preview_request(prompt: str) -> dict[str, object]:
             "size": "1024x1536",
             "outputFormat": "png",
             "count": 1,
+            "openai": {"moderation": BASELINE_MODERATION},
         },
         "delivery": "host_managed_current_session",
     }

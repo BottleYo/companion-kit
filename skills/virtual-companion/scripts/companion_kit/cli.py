@@ -34,6 +34,7 @@ from .identity_workflow import (
     confirm_identity_candidate,
 )
 from .image_assets import ImageAssetError, ImageAssetStore
+from .image_provider import BASELINE_MODERATION
 from .installer import InstallError, install_skill
 from .kernel import CompanionKernel
 from .openai_image_api import ImageApiError, OpenAIImageClient
@@ -688,6 +689,7 @@ def main(argv: list[str] | None = None) -> int:
                         "auth_ready": OpenAIImageClient().auth_ready,
                         "model": "gpt-image-2",
                         "quality": "high",
+                        "moderation": BASELINE_MODERATION,
                         "delivery": "current_reply",
                     },
                 }
@@ -698,6 +700,9 @@ def main(argv: list[str] | None = None) -> int:
                         "proof": preview["proof"],
                         "model_request": preview["arguments"]["model"],
                         "quality_request": preview["arguments"]["quality"],
+                        "moderation_request": preview["arguments"]["openai"][
+                            "moderation"
+                        ],
                         "delivery": preview["delivery"],
                     }
                 print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -790,6 +795,7 @@ def main(argv: list[str] | None = None) -> int:
                             "setup": "无需单独配置",
                             "availability": "由当前 Codex 任务检测",
                             "model": "gpt-image-2（Codex 内置）",
+                            "moderation_control": "host_managed",
                             "billing": "计入 Codex 方案用量或额度",
                             "use_for": "人物原型、日常照片与参考图编辑",
                         },

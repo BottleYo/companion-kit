@@ -1,6 +1,6 @@
 # Companion Kit
 
-> 给 Codex 加一个会聊天、会做事、也会发人物照片的虚拟陪伴对象。当前版本 `0.7.0-dev.9`，处于 Codex-first Developer Preview。
+> 给 Codex 加一个会聊天、会做事、也会发人物照片的虚拟陪伴对象。当前版本 `0.7.0-dev.10`，处于 Codex-first Developer Preview。
 
 Companion Kit 的载体是一个 Codex Plugin，加上一块只在本机打开的 Persona 面板。它不是独立 App，也不是需要反复点名调用的 Skill。
 
