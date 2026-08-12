@@ -204,6 +204,7 @@ def main() -> int:
                     profile_id=runtime.profile.id,
                     session_id=session_id,
                     source_path=raw_target,
+                    identity_version=runtime.profile.visual.identity_version,
                 )
             except PhotoMomentStoreError:
                 return _deny("编辑目标不是当前任务最近一次人物照片；不会套用固定人物。")

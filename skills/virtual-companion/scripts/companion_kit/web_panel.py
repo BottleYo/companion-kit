@@ -20,7 +20,7 @@ from .hook_health import HookHealthError, HookHealthStore, version_base
 from .identity_pack import PRIMARY_FACE
 from .identity_workflow import (
     IdentityConfirmationRetry,
-    confirm_identity_candidate,
+    confirm_primary_candidate,
 )
 from .image_assets import ImageAssetError, ImageAssetStore
 from .initializer import default_profile_path
@@ -724,13 +724,6 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             self._send_json(409, {"error": "请先保存 Persona，再上传人物参考图"})
             return
-        if snapshot.profile.visual.is_locked:
-            self.close_connection = True
-            self._send_json(
-                409,
-                {"error": "人物主脸已经固定；更换形象需要单独的身份轮换流程"},
-            )
-            return
         if self.headers.get("X-Companion-Image-Consent", "") != "adult-authorized":
             self.close_connection = True
             self._send_json(
@@ -741,10 +734,14 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         image_bytes = self._read_png()
         if image_bytes is None:
             return
+        identity_version = snapshot.profile.visual.identity_version
+        replacing = snapshot.profile.visual.is_locked
+        if replacing:
+            identity_version += 1
         try:
             candidate = self._identity_assets().store_candidate(
                 profile_id=snapshot.profile.id,
-                identity_version=snapshot.profile.visual.identity_version,
+                identity_version=identity_version,
                 image_bytes=image_bytes,
                 task_scope=self._identity_scope(),
                 source="user_upload",
@@ -762,6 +759,8 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                 "candidate": {
                     "candidate_id": candidate.candidate_id,
                     "profile_version": snapshot.version,
+                    "identity_version": identity_version,
+                    "operation": "replace_primary" if replacing else "set_primary",
                     "width": candidate.width,
                     "height": candidate.height,
                     "status": "pending",
@@ -785,7 +784,7 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             self._send_json(409, {"error": "只有明确确认后才会固定人物主脸"})
             return
         try:
-            reference, bound = confirm_identity_candidate(
+            reference, bound = confirm_primary_candidate(
                 assets=self._identity_assets(),
                 profile_store=self.server.store,
                 candidate_id=candidate_id,

@@ -48,6 +48,7 @@ const elements = {
   identityConsent: document.querySelector("#identityConsent"),
   stageIdentity: document.querySelector("#stageIdentity"),
   confirmIdentity: document.querySelector("#confirmIdentity"),
+  replaceIdentity: document.querySelector("#replaceIdentity"),
   resetIdentity: document.querySelector("#resetIdentity"),
   identityRequirement: document.querySelector("#identityRequirement"),
   identityPreview: document.querySelector("#identityPreview"),
@@ -102,6 +103,7 @@ let currentVersion = null;
 let pendingHost = null;
 let identityPng = null;
 let stagedIdentity = null;
+let replacingIdentity = false;
 let identityRenderSequence = 0;
 let hookHealthPoll = null;
 
@@ -229,7 +231,9 @@ function resetIdentitySelection() {
   elements.confirmIdentity.hidden = true;
   elements.confirmIdentity.disabled = false;
   setText(elements.confirmIdentity, "设为固定主脸");
+  elements.replaceIdentity.hidden = true;
   elements.resetIdentity.hidden = true;
+  setText(elements.resetIdentity, "换一张");
 }
 
 async function loadConfirmedIdentityPreview(sequence) {
@@ -248,6 +252,7 @@ async function loadConfirmedIdentityPreview(sequence) {
 
 function renderIdentitySetup(profile) {
   const sequence = ++identityRenderSequence;
+  replacingIdentity = false;
   resetIdentitySelection();
   elements.identityConsent.checked = false;
   const locked = profile?.visual_identity?.status === "locked" && profile.visual_identity.reference_count === 1;
@@ -266,10 +271,11 @@ function renderIdentitySetup(profile) {
   }
   if (locked) {
     elements.stageIdentity.hidden = true;
+    elements.replaceIdentity.hidden = false;
     elements.resetIdentity.hidden = true;
     setText(elements.identityPanelStatus, "主脸已确认");
-    setText(elements.identityRequirement, "当前面板不会静默替换已经固定的脸。以后如需更换，会走单独的身份轮换流程。");
-    setText(elements.identityCandidateStatus, "这张参考只固定人物身份；发型、妆容、服饰和场景仍会随每次照片变化。");
+    setText(elements.identityRequirement, "可以随时更换主脸。新照片会先预览，只有再次确认后才会切换；Persona、关系进度和已有照片都不会删除。");
+    setText(elements.identityCandidateStatus, "更换后会从新的基础身份开始；旧侧脸和体型参考不会混到新人物上。");
     showIdentityPlaceholder("正在读取固定主脸", "图片只会通过本地授权接口显示，不会放进公开页面地址。");
     void loadConfirmedIdentityPreview(sequence);
     return;
@@ -286,7 +292,7 @@ async function selectIdentityFile(file) {
     showToast("请先保存 Persona，再选择人物参考图");
     return;
   }
-  if (state.profile.visual_identity.status === "locked") {
+  if (state.profile.visual_identity.status === "locked" && !replacingIdentity) {
     showToast("人物主脸已经固定，不能在这里直接覆盖");
     return;
   }
@@ -607,7 +613,7 @@ function renderHookReadiness(payload) {
   );
   const pack = state?.photo_modes?.identity_pack;
   if (readiness.reference_saved && !readiness.session_loaded) {
-    setText(elements.referenceStatus, "主脸已保存；新任务尚未加载，请先完成 Hook 审核与验证");
+    setText(elements.referenceStatus, "主脸已保存；新任务尚未加载，请新建一个 Codex 任务使用当前形象");
   } else if (readiness.reference_saved && readiness.session_loaded && pack?.level === "basic") {
     setText(elements.referenceStatus, "形象稳定性：基础 · 主脸已成功加载，普通自拍可以复用");
   }
@@ -648,7 +654,7 @@ function renderProfile(profile) {
   } else if (!pack?.ready) {
     setText(elements.referenceStatus, "身份参考暂时不可用；人物生图会暂停，不会偷偷换脸");
   } else if (!loaded) {
-    setText(elements.referenceStatus, "主脸已保存；新任务尚未加载，请先完成 Hook 审核与验证");
+    setText(elements.referenceStatus, "主脸已保存；新任务尚未加载，请新建一个 Codex 任务使用当前形象");
   } else if (pack.level === "basic") {
     setText(elements.referenceStatus, "形象稳定性：基础 · 主脸已成功加载，普通自拍可以复用");
   } else {
@@ -953,7 +959,15 @@ elements.stageIdentity.addEventListener("click", async () => {
     elements.stageIdentity.hidden = true;
     elements.confirmIdentity.hidden = false;
     elements.resetIdentity.hidden = false;
-    setText(elements.identityCandidateStatus, "已经进入本地候选槽，但还没有固定。确认长相没问题后，再按一次“设为固定主脸”。");
+    const replacing = stagedIdentity.operation === "replace_primary";
+    replacingIdentity = replacing;
+    setText(elements.confirmIdentity, replacing ? "确认更换为这张" : "设为固定主脸");
+    setText(
+      elements.identityCandidateStatus,
+      replacing
+        ? "新照片已经进入候选槽，当前主脸仍然有效。确认后才会切换到新身份版本。"
+        : "已经进入本地候选槽，但还没有固定。确认长相没问题后，再按一次“设为固定主脸”。",
+    );
   } catch (error) {
     elements.stageIdentity.disabled = false;
     setText(elements.stageIdentity, "上传为候选");
@@ -963,8 +977,12 @@ elements.stageIdentity.addEventListener("click", async () => {
 
 elements.confirmIdentity.addEventListener("click", async () => {
   if (!stagedIdentity) return;
+  const replacing = stagedIdentity.operation === "replace_primary";
+  if (replacing && !window.confirm(
+    "确认更换主脸？\n\nPersona、关系进度和已有照片会保留；旧侧脸与体型参考不会用于新人物。确认后请新建一个 Codex 任务加载新形象。",
+  )) return;
   elements.confirmIdentity.disabled = true;
-  setText(elements.confirmIdentity, "正在固定…");
+  setText(elements.confirmIdentity, replacing ? "正在安全更换…" : "正在固定…");
   try {
     await api("/api/identity/confirm", {
       method: "POST",
@@ -974,7 +992,11 @@ elements.confirmIdentity.addEventListener("click", async () => {
         confirm: true,
       }),
     });
-    showToast("主脸已经固定，以后换场景也不会随便换人");
+    showToast(
+      replacing
+        ? "主脸已经更换；Persona 和关系进度都保留，请新建一个 Codex 任务"
+        : "主脸已经固定，以后换场景也不会随便换人",
+    );
     await loadState();
   } catch (error) {
     if (error.payload?.retry_profile_version) {
@@ -984,13 +1006,41 @@ elements.confirmIdentity.addEventListener("click", async () => {
     showToast(error.message);
   } finally {
     elements.confirmIdentity.disabled = false;
-    setText(elements.confirmIdentity, "设为固定主脸");
+    setText(elements.confirmIdentity, replacing ? "确认更换为这张" : "设为固定主脸");
   }
 });
 
 elements.resetIdentity.addEventListener("click", () => {
+  const wasReplacing = replacingIdentity || stagedIdentity?.operation === "replace_primary";
   renderIdentitySetup(state?.profile || null);
-  setText(elements.identityCandidateStatus, "已退出当前预览。下次上传会安全替换本地候选槽；没有确认就不会固定成主脸。");
+  setText(
+    elements.identityCandidateStatus,
+    wasReplacing
+      ? "已经取消这次更换，当前主脸没有变化。下次仍然可以重新选择。"
+      : "已退出当前预览。下次上传会安全替换本地候选槽；没有确认就不会固定成主脸。",
+  );
+});
+
+elements.replaceIdentity.addEventListener("click", () => {
+  const locked = state?.profile?.visual_identity?.status === "locked"
+    && state.profile.visual_identity.reference_count === 1;
+  if (!locked) return;
+  ++identityRenderSequence;
+  replacingIdentity = true;
+  resetIdentitySelection();
+  replacingIdentity = true;
+  elements.identityDropzone.hidden = false;
+  elements.identityConsentRow.hidden = false;
+  elements.identityFile.disabled = false;
+  elements.identityConsent.disabled = false;
+  elements.identityDropzone.classList.remove("identity-dropzone--disabled");
+  elements.stageIdentity.hidden = false;
+  elements.replaceIdentity.hidden = true;
+  elements.resetIdentity.hidden = false;
+  setText(elements.resetIdentity, "取消更换");
+  setText(elements.identityPanelStatus, "准备更换主脸");
+  setText(elements.identityRequirement, "先选择新照片预览。没有按下最终确认前，当前主脸和所有历史数据都不会变化。");
+  setText(elements.identityCandidateStatus, "新主脸确认后会启用新的身份版本；旧侧脸和体型参考仍保留在旧版本，但不会混用。");
 });
 
 elements.createBackup.addEventListener("click", createBackup);

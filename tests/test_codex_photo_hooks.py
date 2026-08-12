@@ -289,6 +289,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                     session_id="edit-session",
                     paths=(result,),
                     is_companion=True,
+                    identity_version=1,
                 )
 
             companion_edit = _run_hook(
@@ -335,6 +336,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                     session_id="edit-session",
                     paths=(result,),
                     is_companion=False,
+                    identity_version=1,
                 )
             for index, prompt in enumerate(
                 (
@@ -392,6 +394,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                                 session_id=session_id,
                                 paths=(target,),
                                 is_companion=True,
+                                identity_version=1,
                             )
                         elif state == "corrupt":
                             moment_store = PhotoMomentStore()
@@ -400,6 +403,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                                 session_id=session_id,
                                 paths=(target,),
                                 is_companion=True,
+                                identity_version=1,
                             )
                             result_path = next(
                                 moment_store.result_root.glob("*.json")
@@ -665,6 +669,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                     session_id=session_id,
                     paths=(previous,),
                     is_companion=True,
+                    identity_version=1,
                 )
 
             completed = _run_hook(
@@ -772,6 +777,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                     session_id=session_id,
                     paths=(previous,),
                     is_companion=True,
+                    identity_version=1,
                 )
 
             payload = {
@@ -838,6 +844,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                     session_id=session_id,
                     paths=(image,),
                     is_companion=True,
+                    identity_version=1,
                 )
                 image.write_bytes(tiny_png(metadata=b"generic-overwrite"))
                 receipts.record(
@@ -965,6 +972,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                     moments.latest_result_is_companion(
                         profile_id="companion",
                         session_id=session_id,
+                        identity_version=1,
                     )
                 )
 
@@ -990,6 +998,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                     PhotoMomentStore().latest_result_is_companion(
                         profile_id="companion",
                         session_id=session_id,
+                        identity_version=1,
                     )
                 )
 
@@ -1017,6 +1026,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                     PhotoMomentStore().latest_result_is_companion(
                         profile_id="companion",
                         session_id=session_id,
+                        identity_version=1,
                     )
                 )
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portable-companion-kit"
-version = "0.7.0-dev.8"
+version = "0.7.0-dev.9"
 description = "Codex 优先的轻量虚拟陪伴人格与固定人物图片核心"
 readme = "README.md"
 requires-python = ">=3.11"

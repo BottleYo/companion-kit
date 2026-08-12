@@ -73,6 +73,7 @@ def main() -> int:
                     session_id=session_id,
                     paths=paths,
                     is_companion=False,
+                    identity_version=profile.visual.identity_version,
                 )
             except Exception:
                 # latest receipt 与内容哈希仍会阻止旧摘要授权新的普通图片。
@@ -91,6 +92,7 @@ def main() -> int:
                         session_id=session_id,
                         paths=paths,
                         is_companion=True,
+                        identity_version=pending.identity_version,
                     )
                 except Exception:
                     # 照片仍已真实生成，但不会把它错误开放成“编辑上一张”。

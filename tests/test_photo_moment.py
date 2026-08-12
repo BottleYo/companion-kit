@@ -89,18 +89,21 @@ class PhotoMomentTests(unittest.TestCase):
                 session_id="private-session",
                 paths=(image,),
                 is_companion=True,
+                identity_version=1,
             )
 
             self.assertTrue(
                 store.latest_result_is_companion(
                     profile_id="private-persona",
                     session_id="private-session",
+                    identity_version=1,
                 )
             )
             self.assertEqual(
                 store.latest_result_state(
                     profile_id="private-persona",
                     session_id="private-session",
+                    identity_version=1,
                 ),
                 "companion",
             )
@@ -108,6 +111,7 @@ class PhotoMomentTests(unittest.TestCase):
                 profile_id="private-persona",
                 session_id="private-session",
                 source_path=image,
+                identity_version=1,
             )
             image.write_bytes(b"overwritten-generic-content")
             with self.assertRaises(PhotoMomentStoreError):
@@ -115,23 +119,27 @@ class PhotoMomentTests(unittest.TestCase):
                     profile_id="private-persona",
                     session_id="private-session",
                     source_path=image,
+                    identity_version=1,
                 )
             store.record_image_result(
                 profile_id="private-persona",
                 session_id="private-session",
                 paths=(image,),
                 is_companion=False,
+                identity_version=1,
             )
             self.assertFalse(
                 store.latest_result_is_companion(
                     profile_id="private-persona",
                     session_id="private-session",
+                    identity_version=1,
                 )
             )
             self.assertEqual(
                 store.latest_result_state(
                     profile_id="private-persona",
                     session_id="private-session",
+                    identity_version=1,
                 ),
                 "generic",
             )
@@ -139,6 +147,7 @@ class PhotoMomentTests(unittest.TestCase):
                 store.latest_result_state(
                     profile_id="private-persona",
                     session_id="another-session",
+                    identity_version=1,
                 ),
                 "missing",
             )
@@ -162,6 +171,7 @@ class PhotoMomentTests(unittest.TestCase):
                 session_id="session",
                 paths=(image,),
                 is_companion=True,
+                identity_version=1,
             )
             result_files = tuple((root / "runtime" / "results").glob("*.json"))
             self.assertEqual(len(result_files), 1)
@@ -171,9 +181,41 @@ class PhotoMomentTests(unittest.TestCase):
                 store.latest_result_is_companion(
                     profile_id="companion",
                     session_id="session",
+                    identity_version=1,
                 )
             )
             self.assertFalse(result_files[0].exists())
+
+    def test_latest_result_cannot_cross_identity_versions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "photo-moments"
+            image = Path(tmp).resolve() / "old-face.png"
+            image.write_bytes(b"old-identity-result")
+            store = PhotoMomentStore(root)
+            store.record_image_result(
+                profile_id="companion",
+                session_id="same-session",
+                paths=(image,),
+                is_companion=True,
+                identity_version=1,
+            )
+
+            self.assertEqual(
+                store.latest_result_state(
+                    profile_id="companion",
+                    session_id="same-session",
+                    identity_version=2,
+                ),
+                "missing",
+            )
+            with self.assertRaises(PhotoMomentStoreError):
+                store.verify_latest_companion_path(
+                    profile_id="companion",
+                    session_id="same-session",
+                    source_path=image,
+                    identity_version=2,
+                )
+
     def test_envelope_round_trip_is_removed_from_provider_prompt(self) -> None:
         original = "真实生活感的窗边自拍"
         payload = original + encode_photo_envelope("ckp_" + "a" * 24, moment())

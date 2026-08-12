@@ -134,7 +134,7 @@ class BackupManagerTests(unittest.TestCase):
             )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.7.0-dev.8",
+                product_version="0.7.0-dev.9",
                 clock=lambda: NOW,
             )
 
@@ -163,7 +163,7 @@ class BackupManagerTests(unittest.TestCase):
             transient.write_text("temporary", encoding="utf-8")
             manager = BackupManager(
                 CompanionDataLayout.for_profile(profile),
-                product_version="0.7.0-dev.8",
+                product_version="0.7.0-dev.9",
                 clock=lambda: NOW,
             )
 
@@ -232,6 +232,66 @@ class BackupManagerTests(unittest.TestCase):
             connection.close()
             self.assertEqual(event_count, 1)
 
+    def test_backup_preserves_inactive_identity_versions_after_face_rotation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "companion-home"
+            old_reference_id, profile_id = _create_durable_data(root)
+            profile_store = ProfileStore(
+                skill_root=SKILL_ROOT,
+                profile_path=root / "profiles" / "default.toml",
+            )
+            before_rotation = profile_store.read()
+            assert before_rotation is not None
+            assets = ImageAssetStore(root / "private" / "images")
+            candidate = assets.store_candidate(
+                profile_id=profile_id,
+                identity_version=2,
+                image_bytes=tiny_png(rgba=b"\x80\x40\x20\xff"),
+                task_scope="backup-rotated-face",
+                source="user_upload",
+            )
+            new_reference = assets.confirm_candidate(
+                candidate_id=candidate.candidate_id,
+                profile_id=profile_id,
+                identity_version=2,
+                task_scope="backup-rotated-face",
+            )
+            profile_store.rotate_reference(
+                reference_id=new_reference.reference_id,
+                current_reference_id=old_reference_id,
+                current_identity_version=1,
+                next_identity_version=2,
+                expected_version=before_rotation.version,
+            )
+            manager = BackupManager(
+                CompanionDataLayout.for_codex(data_root=root),
+                product_version="0.7.0-dev.9",
+                clock=lambda: NOW,
+            )
+
+            snapshot = manager.create()
+            restored = manager.recover_copy(
+                snapshot.backup_id,
+                root.parent / "rotated-recovery-copy",
+            )
+            restored_assets = ImageAssetStore(restored / "private" / "images")
+            old_pack = restored_assets.resolve_identity_pack(
+                primary_reference_id=old_reference_id,
+                profile_id=profile_id,
+                identity_version=1,
+            )
+            new_pack = restored_assets.resolve_identity_pack(
+                primary_reference_id=new_reference.reference_id,
+                profile_id=profile_id,
+                identity_version=2,
+            )
+
+            self.assertEqual(old_pack.primary_reference_id, old_reference_id)
+            self.assertEqual(
+                new_pack.primary_reference_id,
+                new_reference.reference_id,
+            )
+
     def test_inventory_blocks_upgrade_when_confirmed_identity_is_damaged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve() / "companion-home"
@@ -245,7 +305,7 @@ class BackupManagerTests(unittest.TestCase):
             pack.members[0].path.write_bytes(b"damaged")
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.7.0-dev.8",
+                product_version="0.7.0-dev.9",
                 clock=lambda: NOW,
             )
 
