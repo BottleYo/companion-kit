@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Companion Kit</title>
+    <style>
+      :root { color-scheme: light dark; font-family: ui-rounded, system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 14px; background: transparent; color: CanvasText; }
+      .card { border: 1px solid color-mix(in srgb, CanvasText 14%, transparent); border-radius: 18px; padding: 18px; background: color-mix(in srgb, Canvas 94%, #b7a0ff 6%); }
+      .top { display: flex; align-items: center; gap: 12px; }
+      .mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 14px; background: #7c5cff; color: white; font-size: 20px; }
+      h1 { font-size: 18px; margin: 0 0 3px; }
+      .sub, .detail { color: color-mix(in srgb, CanvasText 68%, transparent); font-size: 13px; line-height: 1.55; }
+      .status { margin: 16px 0; padding: 13px 14px; border-radius: 14px; background: color-mix(in srgb, CanvasText 6%, transparent); }
+      .summary { font-weight: 650; font-size: 14px; margin-bottom: 4px; }
+      .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0 16px; }
+      .pill { padding: 9px; border-radius: 12px; text-align: center; background: color-mix(in srgb, CanvasText 5%, transparent); }
+      .pill b { display: block; font-size: 13px; }
+      .pill span { font-size: 11px; color: color-mix(in srgb, CanvasText 62%, transparent); }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+      details { margin: 14px 0; padding: 12px; border-radius: 14px; background: color-mix(in srgb, CanvasText 5%, transparent); }
+      summary { cursor: pointer; font-weight: 650; font-size: 13px; }
+      label { display: block; margin-top: 10px; font-size: 12px; color: color-mix(in srgb, CanvasText 70%, transparent); }
+      input, textarea, select { width: 100%; margin-top: 5px; border: 1px solid color-mix(in srgb, CanvasText 14%, transparent); border-radius: 10px; padding: 9px 10px; background: Canvas; color: CanvasText; font: inherit; }
+      textarea { min-height: 74px; resize: vertical; }
+      .preview { width: min(100%, 240px); max-height: 240px; object-fit: cover; border-radius: 14px; margin-top: 10px; display: none; }
+      .check { display: flex; gap: 8px; align-items: flex-start; }
+      .check input { width: auto; margin-top: 3px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+      button { border: 0; border-radius: 999px; padding: 9px 13px; font: inherit; font-size: 13px; cursor: pointer; background: color-mix(in srgb, CanvasText 9%, transparent); color: CanvasText; }
+      button.primary { background: #7c5cff; color: white; }
+      button:disabled { opacity: .55; cursor: default; }
+      .foot { margin-top: 13px; font-size: 11px; color: color-mix(in srgb, CanvasText 55%, transparent); }
+      @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="top">
+        <div class="mark">✦</div>
+        <div><h1>人物面板</h1><div class="sub">只在你选中的任务里出现，写代码时不来抢键盘。</div></div>
+      </div>
+      <section class="status"><div id="summary" class="summary">正在确认状态…</div><div id="detail" class="detail"></div></section>
+      <section class="grid">
+        <div class="pill"><b id="persona">—</b><span>Persona</span></div>
+        <div class="pill"><b id="identity">—</b><span>固定形象</span></div>
+        <div class="pill"><b id="hooks">—</b><span>Hooks</span></div>
+        <div class="pill"><b id="scope">—</b><span>陪伴任务</span></div>
+      </section>
+      <details id="setup">
+        <summary>创建或调整 Persona</summary>
+        <label>你想认识一个怎样的人？<textarea id="description" maxlength="600" placeholder="比如：高冷御姐，成熟自信，平时话不多，解决问题很利落"></textarea></label>
+        <div class="row">
+          <label>称呼<input id="displayName" maxlength="40" placeholder="留空也可以" /></label>
+          <label>从模板起步<select id="template"><option value="">让我自己描述</option><option value="warm_healer">温柔治愈</option><option value="calm_partner">清醒同伴</option><option value="sunny_friend">阳光朋友</option><option value="playful_pal">俏皮搭档</option></select></label>
+        </div>
+        <div class="row">
+          <label>相处起点<select id="startingMode"><option value="natural">自然认识</option><option value="familiar">已经熟悉</option></select></label>
+          <label>关系方向<select id="romance"><option value="false">先做普通陪伴</option><option value="true">允许自然发展</option></select></label>
+        </div>
+        <div class="actions" style="margin-top:12px"><button id="savePersona" class="primary">保存 Persona</button></div>
+        <div id="saveHint" class="foot"></div>
+      </details>
+      <details id="identitySetup">
+        <summary>固定或更换人物形象</summary>
+        <label>选择一张清晰参考图<input id="identityFile" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+        <img id="identityPreview" class="preview" alt="人物参考图预览" />
+        <label class="check"><input id="identityConsent" type="checkbox" /><span>我确认这是成年虚构形象，或我有权使用的成年人物参考。</span></label>
+        <div class="actions"><button id="saveIdentity" class="primary" disabled>设为固定主脸</button></div>
+        <div id="identityHint" class="foot">固定的是脸部身份，不会把这张图的发型、妆容和衣服焊死。</div>
+      </details>
+      <div class="actions">
+        <button id="bind" class="primary">在这个任务里陪我</button>
+        <button id="photo">拍张照片</button>
+        <button id="unbind">退出陪伴任务</button>
+        <button id="copyHooks">复制 /hooks</button>
+        <button id="refresh">更新状态</button>
+        <button id="clearScopes">清空任务连接</button>
+      </div>
+      <div id="panelHint" class="foot">Persona、关系和参考照片保存在本机；面板不会展示任务编号或图片路径。</div>
+    </main>
+    <script>
+      let nextId = 1;
+      let toolOutput = null;
+      let privateUiState = null;
+      let personaHydrated = false;
+      let identityPngBase64 = null;
+      const pending = new Map();
+      const byId = (id) => document.getElementById(id);
+
+      function post(message) { window.parent.postMessage(message, "*"); }
+      function rpcRequest(method, params) {
+        const id = nextId++;
+        post({ jsonrpc: "2.0", id, method, params });
+        return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+      }
+      function rpcNotify(method, params) { post({ jsonrpc: "2.0", method, params }); }
+      function label(value, yes, no) { return value ? yes : no; }
+      function applyToolResult(result) {
+        toolOutput = result?.structuredContent || toolOutput;
+        privateUiState = result?._meta?.["companion-kit/ui-state"] || privateUiState;
+        personaHydrated = false;
+        render();
+      }
+      function render() {
+        if (!toolOutput) return;
+        const readiness = toolOutput.readiness || {};
+        byId("summary").textContent = readiness.summary || "状态暂时不可用";
+        byId("detail").textContent = readiness.detail || "";
+        byId("persona").textContent = label(toolOutput.persona?.configured, "已创建", "待创建");
+        byId("identity").textContent = label(toolOutput.identity?.ready, "已固定", "待确认");
+        byId("hooks").textContent = label(toolOutput.hooks?.session_verified, "已验证", "待审核");
+        const count = Number(toolOutput.scope?.active_task_count || 0);
+        byId("scope").textContent = count > 0 ? `${count} 个` : "未连接";
+        const form = privateUiState?.persona_form;
+        if (form && !personaHydrated) {
+          byId("description").value = form.description || "";
+          byId("displayName").value = form.display_name || "";
+          byId("template").value = form.template_id || "";
+          byId("startingMode").value = form.starting_mode || "natural";
+          byId("romance").value = form.romance_enabled ? "true" : "false";
+          personaHydrated = true;
+        }
+      }
+      window.addEventListener("message", (event) => {
+        if (event.source !== window.parent) return;
+        const message = event.data;
+        if (!message || message.jsonrpc !== "2.0") return;
+        if (typeof message.id === "number") {
+          const item = pending.get(message.id);
+          if (!item) return;
+          pending.delete(message.id);
+          return message.error ? item.reject(message.error) : item.resolve(message.result);
+        }
+        if (message.method === "ui/notifications/tool-result") {
+          applyToolResult(message.params);
+        }
+      }, { passive: true });
+      const ready = rpcRequest("ui/initialize", {
+        appInfo: { name: "companion-kit-widget", version: "0.8.0-dev.1" },
+        appCapabilities: {},
+        protocolVersion: "2026-01-26"
+      }).then(() => rpcNotify("ui/notifications/initialized", {}));
+      function send(text) {
+        return ready.then(() => rpcNotify("ui/message", {
+          role: "user", content: [{ type: "text", text }]
+        }));
+      }
+      byId("bind").addEventListener("click", () => send("把这个任务设为陪伴任务"));
+      byId("photo").addEventListener("click", () => send("拍张照片给我"));
+      byId("unbind").addEventListener("click", () => send("退出陪伴任务"));
+      byId("copyHooks").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText("/hooks");
+          byId("panelHint").textContent = "已复制 /hooks。粘贴到 Codex，由你亲自审核四个 Hooks。";
+        } catch (_) {
+          byId("panelHint").textContent = "请在 Codex 输入 /hooks，并亲自审核 Companion Kit 的四个 Hooks。";
+        }
+      });
+      byId("clearScopes").addEventListener("click", async () => {
+        if (!window.confirm("清空所有陪伴任务连接？Persona、关系和参考照片不会删除。")) return;
+        const button = byId("clearScopes");
+        button.disabled = true;
+        try {
+          await ready;
+          const result = await rpcRequest("tools/call", {
+            name: "clear_companion_task_bindings", arguments: { confirm: true }
+          });
+          applyToolResult(result);
+          byId("panelHint").textContent = "任务连接已清空；Persona、关系和参考照片都还在。";
+        } catch (_) {
+          byId("panelHint").textContent = "这次没有清空成功，现有数据没有变化。";
+        } finally {
+          button.disabled = false;
+        }
+      });
+      byId("savePersona").addEventListener("click", async () => {
+        const button = byId("savePersona");
+        button.disabled = true;
+        byId("saveHint").textContent = "正在整理这张人物卡…";
+        try {
+          await ready;
+          const templateValue = byId("template").value;
+          const result = await rpcRequest("tools/call", {
+            name: "save_companion_persona",
+            arguments: {
+              template_id: templateValue || null,
+              description: byId("description").value || null,
+              display_name: byId("displayName").value || null,
+              starting_mode: byId("startingMode").value,
+              romance_enabled: byId("romance").value === "true",
+              expected_version: privateUiState?.profile_version ?? null,
+              confirm: true
+            }
+          });
+          applyToolResult(result);
+          byId("saveHint").textContent = "保存好了。以后想改，回来再写一遍就行。";
+        } catch (_) {
+          byId("saveHint").textContent = "这次没保存成功，原来的 Persona 没有被覆盖。";
+        } finally {
+          button.disabled = false;
+        }
+      });
+      function fileToPng(file) {
+        if (!file || file.size > 12 * 1024 * 1024) throw new Error("file-too-large");
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("read-failed"));
+          reader.onload = () => {
+            const image = new Image();
+            image.onerror = () => reject(new Error("decode-failed"));
+            image.onload = () => {
+              const scale = Math.min(1, 1536 / Math.max(image.width, image.height));
+              const canvas = document.createElement("canvas");
+              canvas.width = Math.max(1, Math.round(image.width * scale));
+              canvas.height = Math.max(1, Math.round(image.height * scale));
+              canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+              const dataUrl = canvas.toDataURL("image/png");
+              resolve({ dataUrl, base64: dataUrl.split(",", 2)[1] });
+            };
+            image.src = String(reader.result);
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+      function updateIdentityButton() {
+        byId("saveIdentity").disabled = !(identityPngBase64 && byId("identityConsent").checked);
+      }
+      byId("identityFile").addEventListener("change", async (event) => {
+        identityPngBase64 = null;
+        updateIdentityButton();
+        try {
+          const converted = await fileToPng(event.target.files?.[0]);
+          identityPngBase64 = converted.base64;
+          byId("identityPreview").src = converted.dataUrl;
+          byId("identityPreview").style.display = "block";
+          byId("identityHint").textContent = "先看一眼。确认后才会固定；换新脸也不会清空 Persona 和关系。";
+        } catch (_) {
+          byId("identityHint").textContent = "这张图无法读取。请换一张 PNG、JPG 或 WebP，大小不要超过 12MB。";
+        }
+        updateIdentityButton();
+      });
+      byId("identityConsent").addEventListener("change", updateIdentityButton);
+      byId("saveIdentity").addEventListener("click", async () => {
+        if (!identityPngBase64 || !byId("identityConsent").checked) return;
+        const button = byId("saveIdentity");
+        button.disabled = true;
+        byId("identityHint").textContent = "正在确认这张脸…";
+        try {
+          await ready;
+          const result = await rpcRequest("tools/call", {
+            name: "set_companion_primary_face",
+            arguments: {
+              image_base64: identityPngBase64,
+              adult_authorized: true,
+              confirm: true
+            }
+          });
+          applyToolResult(result);
+          identityPngBase64 = null;
+          byId("identityFile").value = "";
+          byId("identityConsent").checked = false;
+          byId("identityHint").textContent = "主脸已经固定。下次想换，还是从这里选图并确认。";
+        } catch (_) {
+          byId("identityHint").textContent = "这次没有换成功，原来的形象仍然有效。";
+        }
+        updateIdentityButton();
+      });
+      byId("refresh").addEventListener("click", async () => {
+        await ready;
+        const result = await rpcRequest("tools/call", { name: "open_companion_home", arguments: {} });
+        applyToolResult(result);
+      });
+    </script>
+  </body>
+</html>

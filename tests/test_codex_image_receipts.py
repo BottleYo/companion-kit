@@ -247,6 +247,7 @@ class CodexImageReceiptTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0)
             self.assertEqual(completed.stdout, "")
             self.assertEqual(completed.stderr, "")
+            self.assertFalse((companion_home / "private" / "photo-moments").exists())
             with patch.dict(
                 os.environ,
                 {

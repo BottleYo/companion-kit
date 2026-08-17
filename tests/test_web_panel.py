@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from companion_kit.web_panel import create_panel_server
+from companion_kit.hook_health import COMPANION_CONTEXT
 from companion_kit.identity_pack import PROFILE_FACE
 from companion_kit.image_assets import ImageAssetStore
 from companion_kit.profile_store import ProfileConflict
@@ -164,7 +165,7 @@ class WebPanelTests(unittest.TestCase):
             def to_dict(self) -> dict[str, object]:
                 return {
                     "ready": True,
-                    "release_version": "0.7.0-dev.10",
+                    "release_version": "0.8.0-dev.1",
                     "marketplace_source_type": "local",
                     "update_candidate": True,
                 }
@@ -196,7 +197,7 @@ class WebPanelTests(unittest.TestCase):
             def to_dict(self) -> dict[str, object]:
                 return {
                     "from_version": "0.7.0-dev.4",
-                    "to_version": "0.7.0-dev.10",
+                    "to_version": "0.8.0-dev.1",
                     "backup_id": "20260806T080000Z-deadbeef",
                     "applied": True,
                     "durable_data_replaced": False,
@@ -405,6 +406,8 @@ class WebPanelTests(unittest.TestCase):
                     task_scope="existing-profile-face",
                 )
                 server.hook_health_store.record_success("session_start")
+                server.companion_scope_store.bind("replacement-task")
+                server.hook_health_store.record_success(COMPANION_CONTEXT)
                 before_state_response, before_state_body = request(
                     server,
                     "GET",
@@ -673,7 +676,7 @@ class WebPanelTests(unittest.TestCase):
                 payload = json.loads(body)
 
                 self.assertEqual(response.status, 200)
-                self.assertEqual(payload["version"], "0.7.0-dev.10")
+                self.assertEqual(payload["version"], "0.8.0-dev.1")
                 self.assertIn("codex_native", payload["photo_modes"])
                 self.assertIn("identity_reuse", payload["photo_modes"])
                 self.assertNotIn("openai_strict", payload["photo_modes"])
@@ -749,11 +752,11 @@ class WebPanelTests(unittest.TestCase):
             self.assertFalse(payload["runtime_readiness"]["session_loaded"])
             self.assertEqual(
                 payload["runtime_readiness"]["summary"],
-                "参考图已保存，但新任务尚未加载",
+                "参考图已保存，但 Hooks 尚未审核",
             )
             self.assertEqual(payload["runtime_readiness"]["state"], "review_required")
 
-    def test_review_ack_then_session_receipt_moves_panel_to_ready(self) -> None:
+    def test_review_session_and_explicit_companion_binding_move_panel_to_ready(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             with running_panel(root) as (server, _):
@@ -798,7 +801,16 @@ class WebPanelTests(unittest.TestCase):
                     "/api/hook-health",
                     token="test-panel-token",
                 )
-                ready = json.loads(verified_body)
+                verified_payload = json.loads(verified_body)
+                server.companion_scope_store.bind("ready-task")
+                server.hook_health_store.record_success(COMPANION_CONTEXT)
+                ready_response, ready_body = request(
+                    server,
+                    "GET",
+                    "/api/hook-health",
+                    token="test-panel-token",
+                )
+                ready = json.loads(ready_body)
 
             self.assertEqual(acknowledged.status, 200)
             self.assertEqual(
@@ -806,11 +818,16 @@ class WebPanelTests(unittest.TestCase):
                 "verification_pending",
             )
             self.assertEqual(verified.status, 200)
+            self.assertEqual(
+                verified_payload["runtime_readiness"]["state"],
+                "companion_task_required",
+            )
+            self.assertEqual(ready_response.status, 200)
             self.assertEqual(ready["runtime_readiness"]["state"], "ready")
             self.assertTrue(ready["runtime_readiness"]["ready"])
             self.assertEqual(
                 ready["runtime_readiness"]["summary"],
-                "Persona 与主脸已成功加载",
+                "Persona 已加载，主脸参考已就绪",
             )
             self.assertFalse(ready["hook_health"]["post_tool_use"]["verified"])
 
@@ -852,6 +869,8 @@ class WebPanelTests(unittest.TestCase):
                     expected_version=None,
                 )
                 server.hook_health_store.record_success("session_start")
+                server.companion_scope_store.bind("newer-face-task")
+                server.hook_health_store.record_success(COMPANION_CONTEXT)
                 assets = ImageAssetStore(root / "private" / "images")
                 candidate = assets.store_candidate(
                     profile_id=snapshot.profile.id,

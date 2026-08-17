@@ -2,26 +2,21 @@
 
 升级这件事很容易写成一句“重新安装即可”。问题是，Persona、关系记录和固定人物参考不是浏览器缓存。删了不能靠刷新页面长回来。
 
-Companion Kit 把程序和 TA 的资料分开处理：新程序可以换，用户资料默认不动。`0.7.0-dev.10` 已经接通本地 Codex Plugin 的检查、恢复点、程序切换和失败回滚。
+Companion Kit 把程序和 TA 的资料分开处理：新程序可以换，用户资料默认不动。`0.8.0-dev.1` 已经接通本地 Codex Plugin 的检查、恢复点、程序切换和失败回滚。
 
 ## 最省事的用法
 
-先在原来的项目目录更新代码：
+先在原来的项目目录更新代码并执行安全升级：
 
 ```bash
 git pull --ff-only
-python3 skills/virtual-companion/scripts/companionctl.py ui
+python3 skills/virtual-companion/scripts/companionctl.py upgrade check
+python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
 ```
 
-打开面板后找到“备份和更新”：
+建议先结束其他正在运行的 Codex 任务。更新完成后，在 Codex 输入 `/hooks` 重新审核四个 Hook，完全退出并重开 Codex，再说“打开 Companion Kit 人物面板”。旧任务不会在半路切换到新 MCP Server 或新 Hook。
 
-1. 点“检查一下”；
-2. 有新版本时，面板才会显示“确认更新”；
-3. 建议先结束其他正在运行的 Codex 任务，再确认；
-4. 更新完成后在 Codex 输入 `/hooks`，重新审核当前版本的四个 Hook；
-5. 回到面板记录审核完成，再新开一个 Codex 任务，等面板显示 Persona 与主脸已经加载。
-
-面板不会自己下载 GitHub 新代码，也不会在打开页面时自动替换 Plugin。这样少一点魔法，多一点可预期。
+人物面板不会自己下载 GitHub 新代码，也不会在打开时自动替换 Plugin。这样少一点魔法，多一点可预期。
 
 如果原项目目录有未提交修改，`git pull --ff-only` 可能会停下来。先处理这些修改，不要为了升级直接强制覆盖。
 
@@ -39,9 +34,9 @@ python3 skills/virtual-companion/scripts/companionctl.py ui
 
 Plugin 版本或 Hook bundle 内容一变，旧健康回执就会失效。面板会回到“需要重新审核”，不会偷偷写入 Codex 的 Hook 信任记录。这个变化只影响程序运行状态，不会删除或覆盖 Persona、关系数据库和参考图。
 
-这一版新增的“更换主脸”也沿用同一条不删数据原则：确认新照片后创建下一身份版本，旧身份包继续进入恢复点，但不再参与新照片。Persona 与关系记录原样保留；因为当前形象发生了变化，需要新建一个 Codex 任务加载。单纯换脸不会改 Hook 文件，也不会要求重新审核 Hook；只有升级 Plugin 或 Hook 内容变化才需要重新审核。
+这一版新增的“更换主脸”也沿用同一条不删数据原则：确认新照片后创建下一身份版本，旧身份包继续进入恢复点，但不再参与新照片。Persona 与关系记录原样保留；因为当前形象发生了变化，需要回到陪伴任务再次点击连接，或新建任务后重新连接。单纯换脸不会改 Hook 文件，也不会要求重新审核 Hook；只有升级 Plugin 或 Hook 内容变化才需要重新审核。
 
-从 `0.7.0-dev.8` 起，下一次成功照片写入会把旧版最近照片配方无损升级为带妆容轴的 PhotoMoment v2。旧记录没有妆容信息时只标记为“未指定”，不会猜测、删除，也不会要求重新上传主脸。`0.7.0-dev.9` 新增主脸轮换和身份版本隔离，升级本身不会自动轮换已有主脸。`0.7.0-dev.10` 只调整受支持图片路径的默认审核级别，不迁移 Persona、关系或参考图。
+从 `0.7.0-dev.8` 起，下一次成功照片会无损升级旧 PhotoMoment；`0.7.0-dev.9` 加入主脸轮换和身份版本隔离。`0.8.0-dev.1` 新增 Plugin UI 和任务级绑定，只会增加本机系统状态，不迁移或删除 Persona、关系、参考图和旧身份包。旧版中已经确认的主脸无需重新上传。
 
 最后一条很重要。更新期间用户资料没有被原地改写，就没有理由上来先“恢复数据”。贸然覆盖反而可能抹掉刚保存的新设定。
 

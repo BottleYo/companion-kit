@@ -12,6 +12,12 @@ class CodexTurnKind(str, Enum):
     PHOTO_EDIT_PREVIOUS = "photo_edit_previous"
 
 
+class CodexScopeCommand(str, Enum):
+    PASS_THROUGH = "pass_through"
+    BIND = "bind"
+    UNBIND = "unbind"
+
+
 @dataclass(frozen=True)
 class CodexTurnIntent:
     kind: CodexTurnKind
@@ -45,6 +51,24 @@ _PERSONA_EDIT_CUE_RE = re.compile(
 )
 _GENERIC_EDIT_SUBJECT_RE = re.compile(
     r"(?:产品(?:图|模特)?|商品(?:图|模特)?|电商|广告|海报|服装模特|商品模特)",
+    re.IGNORECASE,
+)
+_GENERIC_PHOTO_SUBJECT_RE = re.compile(
+    r"(?:产品|商品|物品|电商|广告|海报|网站|网页|落地页|README|"
+    r"流程图|架构图|示意图|图标|logo|包装|白板|咖啡杯|杯子|"
+    r"菜品|食物|风景|夜景|建筑|汽车|房子|猫|狗|宠物)"
+    r".{0,12}(?:照片|相片|图片|图)|"
+    r"(?:照片|相片|图片|图).{0,12}"
+    r"(?:产品|商品|物品|电商|广告|海报|网站|网页|落地页|README|"
+    r"流程图|架构图|示意图|图标|logo|包装|白板|咖啡杯|杯子|"
+    r"菜品|食物|风景|夜景|建筑|汽车|房子|猫|狗|宠物)",
+    re.IGNORECASE,
+)
+_PERSONA_PHOTO_SUBJECT_RE = re.compile(
+    r"(?:自拍|人物照|人像照|"
+    r"你(?:的|本人|现在|今天|正在|在|穿|戴|刚|拿|抱|和|跟|牵|靠|坐|站|举).{0,20}"
+    r"(?:照片|相片|自拍|人物照|人像照|图|样子)|"
+    r"(?:照片|相片|自拍|人物照|人像照|图|样子).{0,20}你(?:的|本人)?)",
     re.IGNORECASE,
 )
 _PERSONA_OWNED_OBJECT_RE = re.compile(
@@ -133,6 +157,38 @@ _DIRECT_PHOTO_RES = (
     re.compile(r"^(?:照片|拍照|人物照片|photo)\s*[:：]", re.IGNORECASE),
 )
 _PREVIOUS_IMAGE_KINDS = {"missing", "generic", "companion"}
+_SCOPE_BIND_RE = re.compile(
+    r"(?:把|将)?(?:这个|当前)?(?:任务|对话|聊天)(?:设为|设置为|切换为|切换成|变成)"
+    r"(?:我的)?(?:一个)?陪伴任务|"
+    r"(?:进入|启用|开启)(?:这个|当前)?(?:任务|对话|聊天)?(?:里的?)?陪伴任务|"
+    r"enable\s+(?:the\s+)?companion\s+task",
+    re.IGNORECASE,
+)
+_SCOPE_UNBIND_RE = re.compile(
+    r"(?:退出|停用|关闭|解除)(?:这个|当前)?(?:任务|对话|聊天)?(?:里的?|的)?"
+    r"陪伴任务|"
+    r"(?:把|将)?(?:这个|当前)?(?:任务|对话|聊天)(?:恢复为|切换为|切换成|变回)"
+    r"普通任务|"
+    r"disable\s+(?:the\s+)?companion\s+task",
+    re.IGNORECASE,
+)
+
+
+def classify_scope_command(text: str) -> CodexScopeCommand:
+    """只识别短而明确的任务绑定命令，不把普通陪聊请求升级成绑定。"""
+
+    normalized = str(text or "").strip()
+    if (
+        not normalized
+        or len(normalized) > 240
+        or any(ord(character) < 32 and character not in "\n\t" for character in normalized)
+    ):
+        return CodexScopeCommand.PASS_THROUGH
+    if _SCOPE_UNBIND_RE.search(normalized):
+        return CodexScopeCommand.UNBIND
+    if _SCOPE_BIND_RE.search(normalized):
+        return CodexScopeCommand.BIND
+    return CodexScopeCommand.PASS_THROUGH
 
 
 def likely_codex_photo_turn(text: str) -> bool:
@@ -147,6 +203,10 @@ def likely_codex_photo_turn(text: str) -> bool:
         normalized
     ):
         return True
+    if _GENERIC_PHOTO_SUBJECT_RE.search(
+        normalized
+    ) and not _PERSONA_PHOTO_SUBJECT_RE.search(normalized):
+        return False
     return bool(
         (_EDIT_OBJECT_RE.search(normalized) and _EDIT_ACTION_RE.search(normalized))
         or any(pattern.search(normalized) for pattern in _DIRECT_PHOTO_RES)

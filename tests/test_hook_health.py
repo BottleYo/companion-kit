@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from companion_kit.hook_health import (
+    COMPANION_CONTEXT,
     HookHealthStore,
     POST_TOOL_USE,
     SESSION_START,
@@ -16,7 +17,7 @@ from companion_kit.hook_health import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _copy_hook_bundle(root: Path, *, version: str = "0.7.0-dev.10") -> Path:
+def _copy_hook_bundle(root: Path, *, version: str = "0.8.0-dev.1") -> Path:
     plugin_root = root / "plugin"
     (plugin_root / ".codex-plugin").mkdir(parents=True)
     (plugin_root / "hooks").mkdir()
@@ -32,6 +33,7 @@ def _copy_hook_bundle(root: Path, *, version: str = "0.7.0-dev.10") -> Path:
         "hooks/codex_image_receipt.py",
         "skills/virtual-companion/scripts/companion_kit/codex_runtime.py",
         "skills/virtual-companion/scripts/companion_kit/codex_turn.py",
+        "skills/virtual-companion/scripts/companion_kit/companion_scope.py",
         "skills/virtual-companion/scripts/companion_kit/codex_image_receipts.py",
         "skills/virtual-companion/scripts/companion_kit/image_assets.py",
         "skills/virtual-companion/scripts/companion_kit/state_store.py",
@@ -71,13 +73,33 @@ class HookHealthStoreTests(unittest.TestCase):
                 },
             )
             self.assertEqual(payload["hook_type"], SESSION_START)
-            self.assertEqual(payload["plugin_version"], "0.7.0-dev.10")
+            self.assertEqual(payload["plugin_version"], "0.8.0-dev.1")
             self.assertEqual(payload["last_success_at"], receipt.last_success_at)
             serialized = json.dumps(payload, ensure_ascii=False)
             self.assertNotIn(str(root), serialized)
             self.assertNotIn("session_id", serialized)
             self.assertNotIn("prompt", serialized)
             self.assertTrue(store.status(SESSION_START).verified)
+
+    def test_companion_context_receipt_is_separate_and_minimal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            plugin_root = _copy_hook_bundle(root)
+            health_root = root / "companion-home" / "system" / "hook-health"
+            store = HookHealthStore(root=health_root, plugin_root=plugin_root)
+
+            store.record_success(COMPANION_CONTEXT)
+            snapshot = store.snapshot()
+            payload = json.loads(
+                (health_root / "companion_context.json").read_text("utf-8")
+            )
+
+            self.assertTrue(snapshot[COMPANION_CONTEXT]["verified"])
+            self.assertEqual(payload["hook_type"], COMPANION_CONTEXT)
+            serialized = json.dumps(payload, ensure_ascii=False)
+            self.assertNotIn(str(root), serialized)
+            self.assertNotIn("session_id", serialized)
+            self.assertNotIn("prompt", serialized)
 
     def test_missing_health_read_is_side_effect_free(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -104,7 +126,7 @@ class HookHealthStoreTests(unittest.TestCase):
 
             manifest = plugin_root / ".codex-plugin" / "plugin.json"
             manifest.write_text(
-                json.dumps({"name": "companion-kit", "version": "0.7.0-dev.10"}),
+                json.dumps({"name": "companion-kit", "version": "0.8.0-dev.1"}),
                 encoding="utf-8",
             )
             current_store = HookHealthStore(root=health_root, plugin_root=plugin_root)
@@ -128,14 +150,14 @@ class HookHealthStoreTests(unittest.TestCase):
     def test_cachebuster_suffix_does_not_invalidate_same_release_and_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            plugin_root = _copy_hook_bundle(root, version="0.7.0-dev.10+codex.local-a")
+            plugin_root = _copy_hook_bundle(root, version="0.8.0-dev.1+codex.local-a")
             health_root = root / "health"
             installed_store = HookHealthStore(root=health_root, plugin_root=plugin_root)
             installed_store.record_success(SESSION_START)
 
             manifest = plugin_root / ".codex-plugin" / "plugin.json"
             manifest.write_text(
-                json.dumps({"name": "companion-kit", "version": "0.7.0-dev.10"}),
+                json.dumps({"name": "companion-kit", "version": "0.8.0-dev.1"}),
                 encoding="utf-8",
             )
             source_store = HookHealthStore(root=health_root, plugin_root=plugin_root)

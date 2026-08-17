@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "companion-kit": {
+      "command": "python3",
+      "args": ["./mcp/companion_server.py"],
+      "cwd": ".",
+      "env_vars": ["COMPANION_HOME"]
+    }
+  }
+}

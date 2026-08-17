@@ -549,6 +549,7 @@ function renderHookReadiness(payload) {
     update_required: "需要更新",
     installation_unknown: "状态未知",
     persona_required: "还差 Persona",
+    companion_task_required: "等待连接陪伴任务",
     primary_face_required: "还差主脸",
     identity_unavailable: "主脸暂不可用",
   };
@@ -592,7 +593,7 @@ function renderHookReadiness(payload) {
   );
   setHookStep(
     elements.hookStepPersona,
-    readiness.ready ? "Persona 与主脸均已加载" : readiness.reference_saved ? "主脸已保存，尚未在新任务加载" : readiness.persona_configured ? "Persona 已保存，主脸可稍后设置" : "尚未完成 Persona",
+    readiness.ready ? "Persona 已加载，主脸参考已就绪" : readiness.reference_saved ? "主脸已保存，等待陪伴任务加载" : readiness.persona_configured ? "Persona 已保存，主脸可稍后设置" : "尚未完成 Persona",
     readiness.ready ? "done" : readiness.session_loaded ? "current" : "waiting",
   );
 
@@ -613,9 +614,9 @@ function renderHookReadiness(payload) {
   );
   const pack = state?.photo_modes?.identity_pack;
   if (readiness.reference_saved && !readiness.session_loaded) {
-    setText(elements.referenceStatus, "主脸已保存；新任务尚未加载，请新建一个 Codex 任务使用当前形象");
+    setText(elements.referenceStatus, "主脸已保存；回到陪伴任务重新连接后即可使用当前形象");
   } else if (readiness.reference_saved && readiness.session_loaded && pack?.level === "basic") {
-    setText(elements.referenceStatus, "形象稳定性：基础 · 主脸已成功加载，普通自拍可以复用");
+    setText(elements.referenceStatus, "形象稳定性：基础 · 主脸参考已就绪，普通自拍可以复用");
   }
 }
 
@@ -654,9 +655,9 @@ function renderProfile(profile) {
   } else if (!pack?.ready) {
     setText(elements.referenceStatus, "身份参考暂时不可用；人物生图会暂停，不会偷偷换脸");
   } else if (!loaded) {
-    setText(elements.referenceStatus, "主脸已保存；新任务尚未加载，请新建一个 Codex 任务使用当前形象");
+    setText(elements.referenceStatus, "主脸已保存；回到陪伴任务重新连接后即可使用当前形象");
   } else if (pack.level === "basic") {
-    setText(elements.referenceStatus, "形象稳定性：基础 · 主脸已成功加载，普通自拍可以复用");
+    setText(elements.referenceStatus, "形象稳定性：基础 · 主脸参考已就绪，普通自拍可以复用");
   } else {
     const additions = [];
     if (pack.roles.includes("profile_face")) additions.push("侧脸");
