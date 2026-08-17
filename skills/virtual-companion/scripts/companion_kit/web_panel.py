@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -14,6 +13,8 @@ import webbrowser
 
 from . import __version__
 from .backup import BackupError, BackupManager, CompanionDataLayout
+from .companion_scope import CompanionScopeError, CompanionScopeStore
+from .companion_status import build_runtime_readiness, companion_context_loaded
 from .codex_upgrade import CodexUpgradeExecutor
 from .host_install import HostInstaller
 from .hook_health import HookHealthError, HookHealthStore, version_base
@@ -81,6 +82,7 @@ class CompanionPanelServer(ThreadingHTTPServer):
         upgrade_planner: CodexUpgradePlanner,
         upgrade_executor: CodexUpgradeExecutor,
         hook_health_store: HookHealthStore,
+        companion_scope_store: CompanionScopeStore,
         nonce: str,
     ) -> None:
         self.stores = dict(stores)
@@ -90,6 +92,7 @@ class CompanionPanelServer(ThreadingHTTPServer):
         self.upgrade_planner = upgrade_planner
         self.upgrade_executor = upgrade_executor
         self.hook_health_store = hook_health_store
+        self.companion_scope_store = companion_scope_store
         self._plugin_status_lock = Lock()
         self._plugin_status_cache: tuple[float, tuple[object, ...], dict[str, object]] | None = None
         self.panel_nonce = nonce
@@ -291,21 +294,10 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         *,
         material_modified_at: float | None,
     ) -> bool:
-        session = hook_health.get("session_start")
-        if not isinstance(session, dict) or session.get("verified") is not True:
-            return False
-        if material_modified_at is None:
-            return True
-        last_success_at = session.get("last_success_at")
-        if not isinstance(last_success_at, str):
-            return False
-        try:
-            loaded_at = datetime.fromisoformat(last_success_at)
-        except ValueError:
-            return False
-        if loaded_at.tzinfo is None:
-            return False
-        return loaded_at.timestamp() >= material_modified_at
+        return companion_context_loaded(
+            hook_health,
+            material_modified_at=material_modified_at,
+        )
 
     def _runtime_readiness(
         self,
@@ -315,101 +307,16 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
         identity_pack: dict[str, object],
         hook_health: dict[str, object],
         material_modified_at: float | None,
+        companion_task_count: int,
     ) -> dict[str, object]:
-        session = hook_health.get("session_start")
-        review = hook_health.get("review")
-        post_tool = hook_health.get("post_tool_use")
-        session_verified = bool(
-            isinstance(session, dict) and session.get("verified") is True
-        )
-        review_acknowledged = bool(
-            isinstance(review, dict) and review.get("acknowledged") is True
-        )
-        post_tool_verified = bool(
-            isinstance(post_tool, dict) and post_tool.get("verified") is True
-        )
-        session_loaded = self._session_loaded(
-            hook_health,
+        return build_runtime_readiness(
+            plugin=plugin,
+            persona_configured=profile is not None,
+            identity_pack=identity_pack,
+            hook_health=hook_health,
             material_modified_at=material_modified_at,
+            companion_task_count=companion_task_count,
         )
-        reference_saved = identity_pack.get("ready") is True
-        persona_configured = profile is not None
-
-        state = "ready"
-        ready = False
-        detail = ""
-        if plugin.get("known") is not True:
-            state = "installation_unknown"
-            summary = "暂时无法核对 Companion Kit Plugin 安装状态"
-            detail = "请确认 Codex 可以正常运行，再刷新面板。"
-        elif plugin.get("installed") is not True:
-            state = "uninstalled"
-            summary = "Companion Kit Plugin 尚未安装"
-            detail = "先安装 Plugin；安装成功不等于 Hooks 已经可以运行。"
-        elif plugin.get("enabled") is not True:
-            state = "plugin_disabled"
-            summary = "Companion Kit Plugin 已安装，但目前处于停用状态"
-            detail = "请先在 Codex 的 Plugin 管理界面启用它。"
-        elif plugin.get("current") is not True:
-            state = "update_required"
-            summary = "Plugin 版本已经变化，需要先更新"
-            detail = "更新不会覆盖 Persona、关系数据或参考图；更新后需要重新审核 Hooks。"
-        elif not session_verified:
-            if review_acknowledged:
-                state = "verification_pending"
-                summary = (
-                    "参考图已保存，但新任务尚未加载"
-                    if reference_saved
-                    else "Hooks 已审核，等待新任务运行验证"
-                )
-                detail = "新建一个 Codex 任务；SessionStart 真正运行后，面板会自动变绿。"
-            else:
-                state = "review_required"
-                summary = (
-                    "参考图已保存，但新任务尚未加载"
-                    if reference_saved
-                    else "Plugin 已安装，等待你审核 Hooks"
-                )
-                detail = "在 Codex 输入 /hooks，逐项审核 Companion Kit 的四个 Hooks。"
-        elif not session_loaded:
-            state = "verification_pending"
-            summary = (
-                "参考图已保存，但新任务尚未加载"
-                if reference_saved
-                else "Persona 已更新，等待新任务重新加载"
-            )
-            detail = "Hooks 已经运行过；请新建一个 Codex 任务加载当前 Persona 与主脸。"
-        elif not persona_configured:
-            state = "persona_required"
-            summary = "SessionStart 已验证，尚未保存 Persona"
-            detail = "先在面板保存 Persona，再新建一个 Codex 任务。"
-        elif identity_pack.get("level") == "unset":
-            state = "primary_face_required"
-            summary = "Persona 已成功加载，尚未固定主脸"
-            detail = "可以先聊天和解决问题；要固定人物照片时再上传或生成候选。"
-        elif not reference_saved:
-            state = "identity_unavailable"
-            summary = "参考图已保存，但当前无法安全加载"
-            detail = "无需重新上传；先检查现有 Identity Pack 的健康状态。"
-        else:
-            ready = True
-            summary = "Persona 与主脸已成功加载"
-            detail = "现在新任务中的人物照片会使用已确认的身份参考。"
-
-        return {
-            "state": state,
-            "ready": ready,
-            "summary": summary,
-            "detail": detail,
-            "plugin_installed": plugin.get("installed") is True,
-            "plugin_enabled": plugin.get("enabled") is True,
-            "plugin_current": plugin.get("current") is True,
-            "persona_configured": persona_configured,
-            "reference_saved": reference_saved,
-            "session_hook_verified": session_verified,
-            "session_loaded": session_loaded,
-            "post_tool_verified": post_tool_verified,
-        }
 
     def _state_payload(self) -> dict[str, object]:
         snapshot = None
@@ -496,19 +403,26 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
                     }
 
         hook_health = self.server.hook_health_store.snapshot()
+        try:
+            companion_task_count = self.server.companion_scope_store.count()
+            companion_scope_error = None
+        except CompanionScopeError:
+            companion_task_count = 0
+            companion_scope_error = "陪伴任务绑定暂时无法安全读取"
         runtime_readiness = self._runtime_readiness(
             plugin=plugin_status,
             profile=profile,
             identity_pack=identity_pack,
             hook_health=hook_health,
             material_modified_at=material_modified_at,
+            companion_task_count=companion_task_count,
         )
 
         if identity_pack.get("ready") is True:
             identity_status = (
-                "主脸已成功加载"
+                "主脸参考已就绪"
                 if runtime_readiness["session_loaded"]
-                else "参考图已保存，新任务尚未加载"
+                else "参考图已保存，陪伴任务尚未加载当前资料"
             )
         elif bool(profile and profile["visual"]["reference_count"] == 1):
             identity_status = "参考图已保存，但当前无法安全读取"
@@ -542,6 +456,10 @@ class CompanionPanelHandler(BaseHTTPRequestHandler):
             "profile_error": profile_error,
             "photo_modes": photo_modes,
             "hook_health": hook_health,
+            "companion_scope": {
+                "active_task_count": companion_task_count,
+                "error": companion_scope_error,
+            },
             "runtime_readiness": runtime_readiness,
             "hosts": hosts,
         }
@@ -1034,6 +952,9 @@ def create_panel_server(
         hook_health_store=HookHealthStore(
             root=layout.system_root / "hook-health",
             plugin_root=root.parents[1],
+        ),
+        companion_scope_store=CompanionScopeStore(
+            root=layout.system_root / "codex-scopes",
         ),
         nonce=token,
     )

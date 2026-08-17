@@ -90,7 +90,7 @@ class VersionTests(unittest.TestCase):
         self.assertIn("不要修改用户全局 AGENTS.md", install_prompt)
         self.assertIn("完全退出并重新打开 Codex", install_prompt)
         self.assertIn("不要让我重新上传已有的健康参考图", install_prompt)
-        self.assertIn("Persona 与主脸已成功加载", install_prompt)
+        self.assertIn("Persona 已加载，主脸参考已就绪", install_prompt)
         self.assertNotIn("读取 README 中“安装后还差 1 分钟”", readme)
         self.assertNotIn("### 安装后还差 1 分钟", readme)
         self.assertNotIn("### 3. 完成 Codex Hook 审核", readme)

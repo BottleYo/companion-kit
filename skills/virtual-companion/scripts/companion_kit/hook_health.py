@@ -15,8 +15,9 @@ from .initializer import InitializationError, default_profile_path, safe_profile
 
 
 SESSION_START = "session_start"
+COMPANION_CONTEXT = "companion_context"
 POST_TOOL_USE = "post_tool_use"
-HOOK_TYPES = frozenset({SESSION_START, POST_TOOL_USE})
+HOOK_TYPES = frozenset({SESSION_START, COMPANION_CONTEXT, POST_TOOL_USE})
 HOOK_HEALTH_SCHEMA_VERSION = 1
 HOOK_REVIEW_SCHEMA_VERSION = 1
 
@@ -28,6 +29,7 @@ _HOOK_BUNDLE_FILES = (
     "hooks/codex_image_receipt.py",
     "skills/virtual-companion/scripts/companion_kit/codex_runtime.py",
     "skills/virtual-companion/scripts/companion_kit/codex_turn.py",
+    "skills/virtual-companion/scripts/companion_kit/companion_scope.py",
     "skills/virtual-companion/scripts/companion_kit/codex_image_receipts.py",
     "skills/virtual-companion/scripts/companion_kit/image_assets.py",
     "skills/virtual-companion/scripts/companion_kit/state_store.py",
@@ -367,5 +369,6 @@ class HookHealthStore:
         return {
             "review": self.review_status().to_dict(),
             SESSION_START: self.status(SESSION_START).to_dict(),
+            COMPANION_CONTEXT: self.status(COMPANION_CONTEXT).to_dict(),
             POST_TOOL_USE: self.status(POST_TOOL_USE).to_dict(),
         }

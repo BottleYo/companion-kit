@@ -124,6 +124,11 @@ class CodexTurnClassifierTests(unittest.TestCase):
         for text in (
             "请分析照片生成为什么总是沿用上次发型，不要生图",
             "给产品落地页生成一张抽象背景图",
+            "帮我给这个产品拍张照片",
+            "给这个商品拍张照片",
+            "拍张办公室白板照片给我",
+            "来一张咖啡杯的照片",
+            "生成一张宠物狗照片",
             "修复 imagegen 参数校验测试",
             "帮我检查这张照片里有什么",
             "帮我看看这张照片",
@@ -145,6 +150,16 @@ class CodexTurnClassifierTests(unittest.TestCase):
                 self.assertEqual(
                     classify_codex_turn(text).kind,
                     CodexTurnKind.PASS_THROUGH,
+                )
+
+        for text in (
+            "拍一张你拿着咖啡杯的照片给我",
+            "给我一张你和宠物狗一起的照片",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    classify_codex_turn(text).kind,
+                    CodexTurnKind.PHOTO_NEW,
                 )
 
     def test_turn_token_is_bound_without_embedding_raw_identifiers(self) -> None:

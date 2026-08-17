@@ -23,7 +23,7 @@ python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
 
 升级器先保存并校验 Codex Persona、关系数据库、Identity Pack 和最近照片配方，再另存旧 Plugin。切换后的即时健康检查失败时只恢复旧程序，不用恢复点覆盖当前用户数据。该流程只适用于本地 Codex Marketplace；Claude 和其他宿主不会跟着更新。更新后需要在 `/hooks` 重新审核当前版本的四个 Hook，再新建任务完成加载验证。
 
-`0.7.0-dev.10` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。
+`0.8.0-dev.1` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。
 
 - 不读取、不检查也不索要 `OPENAI_API_KEY`。
 - 不让用户选择 Provider、快速模式、严格模式或 API 计费方式。
@@ -63,6 +63,6 @@ Claude 适配仍停留在 `0.6.0-dev.1`，只输出图片计划。本轮 Codex �
 ## 共同规则
 
 - 普通任务继续由 Codex 或 Claude 原有工具完成。
-- 新装 Skill 后用新任务验证，避免旧上下文沿用缓存指令。
+- 新装或升级宿主适配后用新任务验证，避免旧上下文沿用缓存指令。
 - 不展示内部图片提示词、路由、计时或本地路径。
 - 不读取现有私人 persona、聊天、记忆或照片目录。

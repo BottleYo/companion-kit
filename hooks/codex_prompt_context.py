@@ -24,6 +24,10 @@ _QUICK_PHOTO_RE = re.compile(
     r"(?:(?:generate|create|make|draw|want|would like)\s+|(?:send|show)(?:\s+me)?\s+)your\s+(?:photo|selfie|picture))",
     re.IGNORECASE,
 )
+_QUICK_SCOPE_RE = re.compile(
+    r"(?:陪伴任务|普通任务|companion\s+task)",
+    re.IGNORECASE,
+)
 
 
 def _plugin_root() -> Path:
@@ -45,31 +49,123 @@ def _output_context(context: str) -> None:
     )
 
 
+def _record_companion_context_health() -> None:
+    try:
+        from companion_kit.hook_health import COMPANION_CONTEXT, HookHealthStore
+
+        HookHealthStore(plugin_root=_plugin_root()).record_success(COMPANION_CONTEXT)
+    except Exception:
+        return
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         if payload.get("hook_event_name") != "UserPromptSubmit":
             return 0
         prompt = payload.get("prompt")
-        if not isinstance(prompt, str) or not _QUICK_PHOTO_RE.search(prompt):
+        if not isinstance(prompt, str) or not (
+            _QUICK_PHOTO_RE.search(prompt) or _QUICK_SCOPE_RE.search(prompt)
+        ):
             return 0
 
         package_root = _plugin_root() / "skills" / "virtual-companion" / "scripts"
         sys.path.insert(0, str(package_root))
+        from companion_kit.companion_scope import (
+            CompanionScopeError,
+            CompanionScopeStore,
+        )
         from companion_kit.codex_runtime import load_codex_runtime_context
         from companion_kit.codex_turn import (
+            CodexScopeCommand,
             CodexTurnKind,
             classify_codex_turn,
+            classify_scope_command,
+            likely_codex_photo_turn,
             make_turn_token,
         )
         from companion_kit.hook_health import inspect_hook_bundle
         from companion_kit.photo_moment_store import PhotoMomentStore
 
-        runtime = load_codex_runtime_context()
-        if runtime is None:
-            return 0
         session_id = str(payload.get("session_id") or "")
         turn_id = str(payload.get("turn_id") or "")
+        scope_command = classify_scope_command(prompt)
+        if scope_command is CodexScopeCommand.BIND:
+            runtime = load_codex_runtime_context(include_identity=False)
+            if runtime is None:
+                _output_context(
+                    "Companion Kit 尚未配置 Persona；本轮不要调用 imagegen，也不要假装已经绑定。"
+                    "请自然提示用户先打开人物面板完成初始化。"
+                )
+                return 0
+            try:
+                CompanionScopeStore(lock_timeout=0.25).bind(session_id)
+            except CompanionScopeError:
+                _output_context(
+                    "当前任务无法安全保存陪伴绑定；保持普通 Codex 任务，不加载 Persona，"
+                    "本轮不要调用 imagegen。请自然提示用户打开人物面板检查状态。"
+                )
+                return 0
+            context = runtime.render(
+                control_path=(
+                    _plugin_root()
+                    / "skills"
+                    / "virtual-companion"
+                    / "scripts"
+                    / "companionctl.py"
+                ),
+                task_scope=session_id,
+            )
+            if _QUICK_PHOTO_RE.search(prompt) and likely_codex_photo_turn(prompt):
+                token = make_turn_token(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    mode="new",
+                    hook_bundle_digest=inspect_hook_bundle(
+                        _plugin_root()
+                    ).hook_bundle_digest,
+                )
+                PhotoMomentStore(lock_timeout=0.25).issue_turn(
+                    profile_id=runtime.profile.id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    mode="new",
+                    turn_token=token,
+                )
+                context += (
+                    "\n当前消息同时要求绑定和拍照；本轮只完成绑定，本轮不要调用 imagegen。"
+                    "请自然确认已经连接，并请用户下一条直接说想拍什么。"
+                )
+            _record_companion_context_health()
+            _output_context(context)
+            return 0
+        if scope_command is CodexScopeCommand.UNBIND:
+            try:
+                CompanionScopeStore(lock_timeout=0.25).unbind(session_id)
+            except CompanionScopeError:
+                _output_context(
+                    "当前任务的陪伴绑定无法安全更新；不要继续扩展 Persona 表达，"
+                    "请自然提示用户打开人物面板检查状态。"
+                )
+                return 0
+            _output_context(
+                "当前任务已退出陪伴任务；从本轮起不再加载 Persona、关系或人物照片规则。"
+                "自然简短确认即可，不删除 Persona、关系、记忆或参考照片。"
+            )
+            return 0
+
+        # “陪伴任务怎么实现”之类的普通讨论可能命中快速关键词门，但不应因此
+        # 读取 Persona，更不能在尚未初始化时向普通任务注入配置提示。
+        if not likely_codex_photo_turn(prompt):
+            return 0
+
+        runtime = load_codex_runtime_context()
+        if runtime is None:
+            _output_context(
+                "Companion Kit 尚未配置 Persona；本轮不要调用 imagegen，也不要生成替代人物。"
+                "请自然提示用户先完成人物初始化。"
+            )
+            return 0
         store = PhotoMomentStore(lock_timeout=0.25)
         intent = classify_codex_turn(
             prompt,

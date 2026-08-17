@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from companion_kit.codex_runtime import load_codex_runtime_context
+from companion_kit.companion_scope import CompanionScopeStore
 from companion_kit.hook_health import HookHealthStore, SESSION_START
 from companion_kit.identity_pack import BODY_SHAPE, PROFILE_FACE
 from companion_kit.initializer import initialize_profile
@@ -148,6 +149,7 @@ class CodexRuntimeTests(unittest.TestCase):
                     template_id="calm_partner",
                     display_name="阿序",
                 )
+                CompanionScopeStore().bind("opaque-session")
 
             environment = os.environ.copy()
             environment["COMPANION_HOME"] = str(home)
