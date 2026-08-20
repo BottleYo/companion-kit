@@ -31,6 +31,7 @@ def moment(**overrides: object) -> PhotoMoment:
         "hairstyle": "loose",
         "expression": "soft_smile",
         "makeup": "natural",
+        "portrait_dynamics": "three_quarter_soft",
         "time_band": "day",
         "intimacy_band": "everyday",
         "caption_act": "share_detail",
@@ -230,13 +231,14 @@ class PhotoMomentTests(unittest.TestCase):
 
         self.assertEqual(cleaned, original)
         self.assertEqual(parsed, moment())
-        self.assertEqual(PHOTO_MOMENT_SCHEMA_VERSION, 2)
-        self.assertIn("COMPANION_KIT_PHOTO_V2", payload)
+        self.assertEqual(PHOTO_MOMENT_SCHEMA_VERSION, 3)
+        self.assertIn("COMPANION_KIT_PHOTO_V4", payload)
         self.assertIn('"makeup":"natural"', payload)
+        self.assertIn('"portrait_dynamics":"three_quarter_soft"', payload)
         self.assertNotIn("COMPANION_KIT", cleaned)
         self.assertNotIn("turn_token", cleaned)
 
-    def test_v3_envelope_carries_a_bounded_daily_look_directive(self) -> None:
+    def test_v4_envelope_carries_a_bounded_daily_look_directive(self) -> None:
         token = "ckp_" + "c" * 24
         directive = DailyLookDirective.from_dict(
             {
@@ -264,8 +266,8 @@ class PhotoMomentTests(unittest.TestCase):
             expected_token=token,
         )
 
-        self.assertEqual(PHOTO_ENVELOPE_SCHEMA_VERSION, 3)
-        self.assertIn("COMPANION_KIT_PHOTO_V3", payload)
+        self.assertEqual(PHOTO_ENVELOPE_SCHEMA_VERSION, 4)
+        self.assertIn("COMPANION_KIT_PHOTO_V4", payload)
         self.assertEqual(cleaned, "自然生活感的自拍")
         self.assertEqual(parsed_moment, moment())
         self.assertEqual(parsed_look, directive)
@@ -278,6 +280,7 @@ class PhotoMomentTests(unittest.TestCase):
         token = "ckp_" + "b" * 24
         legacy_moment = moment().to_dict()
         legacy_moment.pop("makeup")
+        legacy_moment.pop("portrait_dynamics")
         legacy_envelope = (
             "旧版照片描述\n\n[[COMPANION_KIT_PHOTO_V1]]\n"
             + json.dumps(
@@ -300,7 +303,49 @@ class PhotoMomentTests(unittest.TestCase):
 
         self.assertEqual(cleaned, "旧版照片描述")
         self.assertEqual(parsed.makeup, "unspecified")
+        self.assertEqual(parsed.portrait_dynamics, "unspecified")
         self.assertEqual(PhotoMoment.from_dict(legacy_moment).makeup, "unspecified")
+
+    def test_legacy_v2_and_v3_envelopes_remain_readable_after_v4_upgrade(self) -> None:
+        token = "ckp_" + "d" * 24
+        legacy_moment = moment().to_dict()
+        legacy_moment.pop("portrait_dynamics")
+        directive = DailyLookDirective.from_dict(
+            {
+                "action": "one_shot",
+                "look_id": None,
+                "proposal": None,
+            }
+        )
+        for version, daily_look in ((2, None), (3, directive)):
+            with self.subTest(version=version):
+                payload: dict[str, object] = {
+                    "schema_version": version,
+                    "turn_token": token,
+                    "photo_moment": legacy_moment,
+                }
+                if daily_look is not None:
+                    payload["daily_look"] = daily_look.to_dict()
+                envelope = (
+                    f"旧版 V{version} 照片描述\n\n"
+                    f"[[COMPANION_KIT_PHOTO_V{version}]]\n"
+                    + json.dumps(
+                        payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    + f"\n[[/COMPANION_KIT_PHOTO_V{version}]]"
+                )
+
+                cleaned, parsed, parsed_look = parse_photo_envelope_details(
+                    envelope,
+                    expected_token=token,
+                )
+
+                self.assertEqual(cleaned, f"旧版 V{version} 照片描述")
+                self.assertEqual(parsed.portrait_dynamics, "unspecified")
+                self.assertEqual(parsed_look, daily_look)
 
     def test_normalization_clamps_intimacy_and_breaks_repeated_style(self) -> None:
         previous = moment(intimacy_band="everyday")
@@ -330,6 +375,7 @@ class PhotoMomentTests(unittest.TestCase):
             hairstyle="custom",
             expression="custom",
             makeup="custom",
+            portrait_dynamics="custom",
         )
         normalized = normalize_photo_moment(
             previous,
@@ -340,6 +386,7 @@ class PhotoMomentTests(unittest.TestCase):
         self.assertEqual(normalized.hairstyle, "custom")
         self.assertEqual(normalized.expression, "custom")
         self.assertEqual(normalized.makeup, "custom")
+        self.assertEqual(normalized.portrait_dynamics, "custom")
 
     def test_makeup_keeps_short_continuity_then_refreshes_with_new_context(self) -> None:
         first = moment(scene="home", makeup="natural")
@@ -387,6 +434,7 @@ class PhotoMomentTests(unittest.TestCase):
         rendered = moment(
             expression="playful",
             makeup="defined_eyes",
+            portrait_dynamics="side_glance_half_smile",
         ).render_image_constraints()
 
         self.assertIn("本次最终神态", rendered)
@@ -394,7 +442,64 @@ class PhotoMomentTests(unittest.TestCase):
         self.assertIn("本次最终妆容", rendered)
         self.assertIn("眼线或睫毛", rendered)
         self.assertIn("不套用统一瘦脸、大眼或网红脸", rendered)
-        self.assertIn("主脸参考里可见的表情与妆容只是拍摄当时状态", rendered)
+        self.assertIn("主脸参考里可见的表情、头部姿态、视线、嘴角和妆容", rendered)
+
+    def test_new_photo_enforces_tall_natural_adult_proportions_without_big_head(self) -> None:
+        rendered = moment(framing="full").render_image_constraints()
+
+        self.assertIn("偏高挑、修长", rendered)
+        self.assertIn("头身比 1:7 到 1:8", rendered)
+        self.assertIn("肩宽约为头宽的 1.6 到 2 倍", rendered)
+        self.assertIn("脸部身份锁只锁五官和脸型", rendered)
+        self.assertIn("避免 0.5x 超广角", rendered)
+        self.assertIn("严禁大头娃娃", rendered)
+        self.assertIn("不是缩小头部或暴力拉长四肢", rendered)
+
+    def test_portrait_dynamics_explicitly_changes_head_gaze_and_smile(self) -> None:
+        current = PhotoMoment.from_dict(
+            {
+                **moment().to_dict(),
+                "portrait_dynamics": "side_glance_half_smile",
+            }
+        )
+        rendered = current.render_image_constraints()
+
+        self.assertIn("本次面部动态", rendered)
+        self.assertIn("头部向一侧自然转动", rendered)
+        self.assertIn("视线从侧面回到镜头附近", rendered)
+        self.assertIn("不对称的半笑", rendered)
+        self.assertIn("不得照抄主脸参考或上一张照片的头部角度、视线和嘴角弧度", rendered)
+
+    def test_repeated_portrait_dynamics_rotates_to_a_compatible_variant(self) -> None:
+        previous = PhotoMoment.from_dict(
+            {
+                **moment(expression="playful").to_dict(),
+                "portrait_dynamics": "side_glance_half_smile",
+            }
+        )
+        repeated = PhotoMoment.from_dict(
+            {
+                **moment(expression="playful").to_dict(),
+                "portrait_dynamics": "side_glance_half_smile",
+            }
+        )
+
+        normalized = normalize_photo_moment(
+            repeated,
+            recent=(previous,),
+            allowed_intimacy_bands=("everyday",),
+        )
+
+        self.assertNotEqual(
+            normalized.portrait_dynamics,
+            previous.portrait_dynamics,
+        )
+        self.assertNotEqual(normalized.portrait_dynamics, "unspecified")
+        self.assertEqual(normalized.expression, "thoughtful")
+        self.assertIn(
+            normalized.portrait_dynamics,
+            {"quiet_off_camera", "downward_thoughtful", "calm_three_quarter"},
+        )
 
     def test_legacy_history_is_migrated_without_losing_recent_moment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -404,6 +509,7 @@ class PhotoMomentTests(unittest.TestCase):
             history_path.parent.mkdir(parents=True)
             legacy = moment(scene="home").to_dict()
             legacy.pop("makeup")
+            legacy.pop("portrait_dynamics")
             history_path.write_text(
                 json.dumps(
                     {
@@ -430,10 +536,64 @@ class PhotoMomentTests(unittest.TestCase):
 
             migrated = json.loads(history_path.read_text(encoding="utf-8"))
             self.assertEqual(loaded[0].makeup, "unspecified")
+            self.assertEqual(loaded[0].portrait_dynamics, "unspecified")
             self.assertTrue(committed.committed)
-            self.assertEqual(migrated["schema_version"], 2)
+            self.assertEqual(migrated["schema_version"], 3)
             self.assertEqual(migrated["recent"][0]["makeup"], "unspecified")
+            self.assertEqual(
+                migrated["recent"][0]["portrait_dynamics"],
+                "unspecified",
+            )
             self.assertEqual(migrated["recent"][1]["makeup"], "warm_tone")
+
+    def test_v2_history_adds_portrait_dynamics_without_losing_existing_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "photo-moments"
+            store = PhotoMomentStore(root)
+            history_path = store.history_path("companion")
+            history_path.parent.mkdir(parents=True)
+            v2_moment = moment(
+                scene="cafe",
+                expression="thoughtful",
+                makeup="warm_tone",
+            ).to_dict()
+            v2_moment.pop("portrait_dynamics")
+            history_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "profile_digest": history_path.stem,
+                        "recent": [v2_moment],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = store.recent(profile_id="companion")
+            store.stage(
+                profile_id="companion",
+                session_id="session",
+                tool_use_id="tool",
+                photo_moment=moment(scene="street"),
+            )
+            committed = store.commit(
+                profile_id="companion",
+                session_id="session",
+                tool_use_id="tool",
+            )
+
+            migrated = json.loads(history_path.read_text(encoding="utf-8"))
+            self.assertEqual(loaded[0].scene, "cafe")
+            self.assertEqual(loaded[0].makeup, "warm_tone")
+            self.assertEqual(loaded[0].portrait_dynamics, "unspecified")
+            self.assertTrue(committed.committed)
+            self.assertEqual(migrated["schema_version"], 3)
+            self.assertEqual(migrated["recent"][0]["scene"], "cafe")
+            self.assertEqual(migrated["recent"][0]["makeup"], "warm_tone")
+            self.assertEqual(
+                migrated["recent"][0]["portrait_dynamics"],
+                "unspecified",
+            )
 
     def test_store_keeps_only_four_successful_structured_moments(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

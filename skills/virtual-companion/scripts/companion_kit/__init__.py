@@ -13,7 +13,7 @@ from .relationship import (
 )
 from .state_store import RelationshipStore
 
-__version__ = "0.9.0-dev.1"
+__version__ = "0.9.0-dev.2"
 
 __all__ = [
     "CompanionKernel",

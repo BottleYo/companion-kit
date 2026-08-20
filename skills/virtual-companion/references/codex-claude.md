@@ -23,7 +23,7 @@ python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
 
 升级器先保存并校验 Codex Persona、关系数据库、Identity Pack 和最近照片配方，再另存旧 Plugin。切换后的即时健康检查失败时只恢复旧程序，不用恢复点覆盖当前用户数据。该流程只适用于本地 Codex Marketplace；Claude 和其他宿主不会跟着更新。更新后需要在 `/hooks` 重新审核当前版本的四个 Hook，再新建任务完成加载验证。
 
-`0.9.0-dev.1` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。Daily Look 只生成本地结构化穿搭卡，不额外调用图片模型。
+`0.9.0-dev.2` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。Daily Look 和面部动态配方都只在本地生成结构化控制，不额外调用图片模型。
 
 - 不读取、不检查也不索要 `OPENAI_API_KEY`。
 - 不让用户选择 Provider、快速模式、严格模式或 API 计费方式。
@@ -32,7 +32,7 @@ python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
 - 候选经用户明确确认后先保存为私有主脸参考；一张主脸即可开始，不要求初始化时准备三视图。
 - 已确认主脸可以随时从面板显式更换；确认前旧脸继续生效，确认后保留 Persona、关系、历史和旧身份包，新身份从单张主脸开始并在下一个 Codex 任务加载。
 - 用户明确想提高侧脸或全身稳定性时，可再各确认一张补充参考。人物照片回合由图片保护 Hook 按画面从同一 Identity Pack 写入一至两张实际工具参考，且始终包含主脸。
-- 主脸只锁定脸部身份，可选体型参考只帮助保持稳定体型特征；发型、表情、妆容、服饰、姿势和场景按本次需求变化。
+- 主脸只锁定脸部身份，可选体型参考只帮助保持稳定体型特征；发型、表情、头部角度、视线、嘴角、妆容、服饰、姿势和场景按本次需求变化。身体可见时默认使用偏高挑但自然的成年人物比例，并避免大头与超广角畸变。
 
 检查状态：
 

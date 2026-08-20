@@ -17,7 +17,7 @@ from companion_kit.hook_health import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _copy_hook_bundle(root: Path, *, version: str = "0.9.0-dev.1") -> Path:
+def _copy_hook_bundle(root: Path, *, version: str = "0.9.0-dev.2") -> Path:
     plugin_root = root / "plugin"
     (plugin_root / ".codex-plugin").mkdir(parents=True)
     (plugin_root / "hooks").mkdir()
@@ -73,7 +73,7 @@ class HookHealthStoreTests(unittest.TestCase):
                 },
             )
             self.assertEqual(payload["hook_type"], SESSION_START)
-            self.assertEqual(payload["plugin_version"], "0.9.0-dev.1")
+            self.assertEqual(payload["plugin_version"], "0.9.0-dev.2")
             self.assertEqual(payload["last_success_at"], receipt.last_success_at)
             serialized = json.dumps(payload, ensure_ascii=False)
             self.assertNotIn(str(root), serialized)
@@ -126,7 +126,7 @@ class HookHealthStoreTests(unittest.TestCase):
 
             manifest = plugin_root / ".codex-plugin" / "plugin.json"
             manifest.write_text(
-                json.dumps({"name": "companion-kit", "version": "0.9.0-dev.1"}),
+                json.dumps({"name": "companion-kit", "version": "0.9.0-dev.2"}),
                 encoding="utf-8",
             )
             current_store = HookHealthStore(root=health_root, plugin_root=plugin_root)
@@ -150,14 +150,14 @@ class HookHealthStoreTests(unittest.TestCase):
     def test_cachebuster_suffix_does_not_invalidate_same_release_and_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            plugin_root = _copy_hook_bundle(root, version="0.9.0-dev.1+codex.local-a")
+            plugin_root = _copy_hook_bundle(root, version="0.9.0-dev.2+codex.local-a")
             health_root = root / "health"
             installed_store = HookHealthStore(root=health_root, plugin_root=plugin_root)
             installed_store.record_success(SESSION_START)
 
             manifest = plugin_root / ".codex-plugin" / "plugin.json"
             manifest.write_text(
-                json.dumps({"name": "companion-kit", "version": "0.9.0-dev.1"}),
+                json.dumps({"name": "companion-kit", "version": "0.9.0-dev.2"}),
                 encoding="utf-8",
             )
             source_store = HookHealthStore(root=health_root, plugin_root=plugin_root)

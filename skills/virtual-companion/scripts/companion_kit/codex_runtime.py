@@ -177,6 +177,7 @@ class CodexRuntimeContext:
             "hairstyle=loose|tied|half_up|pinned_back|textured|custom；"
             "expression=soft_smile|open_smile|quiet_direct|playful|thoughtful|calm_serious|sleepy_relaxed|custom；"
             "makeup=bare|minimal|natural|soft_matte|warm_tone|cool_tone|defined_eyes|evening|custom；"
+            "portrait_dynamics=direct_soft|three_quarter_soft|downward_private_smile|direct_open_smile|caught_mid_laugh|side_glance_half_smile|curious_tilt|direct_neutral|quiet_off_camera|downward_thoughtful|calm_three_quarter|sleepy_tilt|custom；"
             "time_band=morning|day|dusk|night|custom；"
             "caption_act=share_detail|soft_tease|unfinished_thought|invite_choice|gentle_check_in|custom。"
         )
@@ -214,11 +215,11 @@ class CodexRuntimeContext:
             mode_rule,
             *identity_lines,
             *look_lines,
-            f"最近成功照片配方（只有受控枚举，没有聊天或提示词）：{recent_payload}。新拍让 scene/activity/framing/hairstyle/expression 至少两项不同，且未被点名时 hairstyle 或 expression 至少改变一项。妆容不机械逐张换：同一组或接着拍时自然延续；明显换了时间、场景或准备出门时可换，但连续多次不应永远相同。",
-            "imagegen 的普通画面描述末尾必须附一个 V3 控制信封。信封不会发给图片模型；PreToolUse 会校验并移除。photo_moment 只能使用下面枚举；用户明确点名发型、表情或妆容时一律把对应轴写 custom，具体要求只留在普通画面描述里。用户要求保持不变，Persona 对某轴有固定边界，或枚举无法准确表达时也写 custom，不要把原文塞进字段。",
+            f"最近成功照片配方（只有受控枚举，没有聊天或提示词）：{recent_payload}。新拍让 scene/activity/framing/hairstyle/expression 至少两项不同；portrait_dynamics 还要避开最近重复，让头部角度、视线与嘴角不总是同一套。妆容按生活连续性变化，不机械逐张轮换。",
+            f"imagegen 的画面描述末尾必须附 V{PHOTO_ENVELOPE_SCHEMA_VERSION} 控制信封；PreToolUse 校验并移除，不发给图片模型。字段只用下列枚举。用户点名发型、表情或妆容时对应轴写 custom；点名或要求保持头部角度、视线、嘴部状态时，portrait_dynamics 写 custom。具体细节只写在普通画面描述里。",
             schema,
             "严格使用这个 JSON 结构，不增删字段："
-            f"\n[[COMPANION_KIT_PHOTO_V3]]\n{{\"schema_version\":{PHOTO_ENVELOPE_SCHEMA_VERSION},\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"makeup\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}},{look_payload}}}\n[[/COMPANION_KIT_PHOTO_V3]]",
+            f"\n[[COMPANION_KIT_PHOTO_V{PHOTO_ENVELOPE_SCHEMA_VERSION}]]\n{{\"schema_version\":{PHOTO_ENVELOPE_SCHEMA_VERSION},\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"makeup\":\"<enum>\",\"portrait_dynamics\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}},{look_payload}}}\n[[/COMPANION_KIT_PHOTO_V{PHOTO_ENVELOPE_SCHEMA_VERSION}]]",
             "图片真实返回后再说话，并遵守 PostToolUse 给出的同一 PhotoMoment 文案约束；没有真实结果不说已经拍好。",
         )
         rendered = "\n".join(lines)
