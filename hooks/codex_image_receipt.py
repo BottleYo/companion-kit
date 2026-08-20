@@ -40,6 +40,7 @@ def main() -> int:
             CompanionScopeStore,
         )
         from companion_kit.config import load_profile
+        from companion_kit.daily_look_store import DailyLookStore
         from companion_kit.initializer import default_profile_path
         from companion_kit.photo_moment_store import (
             LATEST_RESULT_MISSING,
@@ -65,6 +66,13 @@ def main() -> int:
                     session_id=session_id,
                     tool_use_id=tool_use_id,
                 )
+            try:
+                DailyLookStore(lock_timeout=0.25).discard_for_photo(
+                    session_id=session_id,
+                    tool_use_id=tool_use_id,
+                )
+            except Exception:
+                pass
             return 0
         recorded = CodexImageReceiptStore(lock_timeout=0.25).record(
             session_id=session_id,
@@ -134,17 +142,40 @@ def main() -> int:
                     tool_use_id=tool_use_id,
                 )
                 photo_moment = result.photo_moment or pending
+                caption_parts = [photo_moment.render_caption_context()]
+                try:
+                    look_result = DailyLookStore(
+                        lock_timeout=0.25
+                    ).commit_for_photo(
+                        profile_id=profile.id,
+                        session_id=session_id,
+                        tool_use_id=tool_use_id,
+                    )
+                    if look_result.look is not None:
+                        caption_parts.append(
+                            look_result.look.render_caption_context()
+                        )
+                except Exception:
+                    pass
                 sys.stdout.write(
                     json.dumps(
                         {
                             "hookSpecificOutput": {
                                 "hookEventName": "PostToolUse",
-                                "additionalContext": photo_moment.render_caption_context(),
+                                "additionalContext": "\n".join(caption_parts),
                             }
                         },
                         ensure_ascii=False,
                     )
                 )
+            else:
+                try:
+                    DailyLookStore(lock_timeout=0.25).discard_for_photo(
+                        session_id=session_id,
+                        tool_use_id=tool_use_id,
+                    )
+                except Exception:
+                    pass
     except Exception:
         # 图片回执缺失时，后续身份暂存会失败关闭；不能影响 Codex 原任务。
         return 0

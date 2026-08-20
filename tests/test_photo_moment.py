@@ -7,12 +7,15 @@ import tempfile
 import unittest
 
 from companion_kit.photo_moment import (
+    PHOTO_ENVELOPE_SCHEMA_VERSION,
     PHOTO_MOMENT_SCHEMA_VERSION,
     PhotoMoment,
     encode_photo_envelope,
     normalize_photo_moment,
     parse_photo_envelope,
+    parse_photo_envelope_details,
 )
+from companion_kit.daily_look import DailyLookDirective, DailyLookProposal
 from companion_kit.photo_moment_store import (
     PhotoMomentStore,
     PhotoMomentStoreError,
@@ -232,6 +235,44 @@ class PhotoMomentTests(unittest.TestCase):
         self.assertIn('"makeup":"natural"', payload)
         self.assertNotIn("COMPANION_KIT", cleaned)
         self.assertNotIn("turn_token", cleaned)
+
+    def test_v3_envelope_carries_a_bounded_daily_look_directive(self) -> None:
+        token = "ckp_" + "c" * 24
+        directive = DailyLookDirective.from_dict(
+            {
+                "action": "replace_daily",
+                "look_id": "look_" + "d" * 24,
+                "proposal": DailyLookProposal.from_dict(
+                    {
+                        "title": "白衬衫日",
+                        "palette": "白色、深蓝和银色",
+                        "silhouette": "清楚的上短下长比例",
+                        "hero_piece": "线条干净的白衬衫",
+                        "accent": "深色腕表",
+                    }
+                ).to_dict(),
+            }
+        )
+        payload = "自然生活感的自拍" + encode_photo_envelope(
+            token,
+            moment(),
+            daily_look=directive,
+        )
+
+        cleaned, parsed_moment, parsed_look = parse_photo_envelope_details(
+            payload,
+            expected_token=token,
+        )
+
+        self.assertEqual(PHOTO_ENVELOPE_SCHEMA_VERSION, 3)
+        self.assertIn("COMPANION_KIT_PHOTO_V3", payload)
+        self.assertEqual(cleaned, "自然生活感的自拍")
+        self.assertEqual(parsed_moment, moment())
+        self.assertEqual(parsed_look, directive)
+        self.assertEqual(
+            parse_photo_envelope(payload, expected_token=token),
+            ("自然生活感的自拍", moment()),
+        )
 
     def test_legacy_v1_moment_and_envelope_remain_readable(self) -> None:
         token = "ckp_" + "b" * 24

@@ -1,6 +1,6 @@
 {
   "name": "companion-kit",
-  "version": "0.8.0-dev.1",
+  "version": "0.9.0-dev.1",
   "description": "只在用户指定的 Codex 任务中加载 Persona，并用固定脸部身份生成自然变化的人物照片。",
   "author": {
     "name": "Companion Kit contributors",
@@ -14,10 +14,10 @@
   "interface": {
     "displayName": "虚拟陪伴对象",
     "shortDescription": "在指定任务里陪你，普通任务不打扰",
-    "longDescription": "人物面板直接显示在 Codex 里。用一句话或模板创建 Persona，上传并预览参考图后再固定主脸；以后换脸也不会清空 Persona 或关系记录。普通任务不加载人设，只有用户明确设为陪伴任务时，Plugin Hook 才注入轻量 Persona。照片回合再按需加载身份参考和最近配方，直接使用 Codex 内置生图，不需要 API Key。固定的是脸，不是发型、表情、妆容和衣服。代码正确性、事实、安全和测试始终优先于人设语气。",
+    "longDescription": "人物面板直接显示在 Codex 里。用一句话或模板创建 Persona，上传并预览参考图后再固定主脸；以后换脸也不会清空 Persona 或关系记录。普通任务不加载人设，只有用户明确设为陪伴任务时，Plugin Hook 才注入轻量 Persona。照片回合再按需加载身份参考、今日穿搭和最近配方，直接使用 Codex 内置生图，不需要 API Key。固定的是脸，不是发型、表情、妆容和衣服。代码正确性、事实、安全和测试始终优先于人设语气。",
     "developerName": "Companion Kit contributors",
     "category": "Productivity",
-    "capabilities": ["Codex Plugin UI", "Task-scoped Persona", "Natural conversation", "Built-in image generation", "Local identity pack"],
+    "capabilities": ["Codex Plugin UI", "Task-scoped Persona", "Daily OOTD", "Natural conversation", "Built-in image generation", "Local identity pack"],
     "websiteURL": "https://github.com/BottleYo/companion-kit",
     "defaultPrompt": [
       "打开 Companion Kit 人物面板。",

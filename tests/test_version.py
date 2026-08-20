@@ -60,7 +60,7 @@ class VersionTests(unittest.TestCase):
             hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0][
                 "additionalContextLimit"
             ],
-            3_200,
+            3_800,
         )
 
         agent_manifest = (
@@ -94,6 +94,8 @@ class VersionTests(unittest.TestCase):
         self.assertNotIn("读取 README 中“安装后还差 1 分钟”", readme)
         self.assertNotIn("### 安装后还差 1 分钟", readme)
         self.assertNotIn("### 3. 完成 Codex Hook 审核", readme)
+        self.assertIn("每日 OOTD 不在凌晨偷偷跑任务", readme)
+        self.assertIn("只有照片真的生成成功", readme)
         self.assertEqual(readme.count("在 Codex 输入 `/hooks`"), 1)
         self.assertEqual(readme.count("SessionStart → codex_context.py"), 1)
         self.assertEqual(readme.count("UserPromptSubmit → codex_prompt_context.py"), 1)

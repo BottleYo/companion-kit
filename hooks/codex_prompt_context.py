@@ -28,6 +28,40 @@ _QUICK_SCOPE_RE = re.compile(
     r"(?:陪伴任务|普通任务|companion\s+task)",
     re.IGNORECASE,
 )
+_QUICK_OOTD_RE = re.compile(
+    r"(?:你|你的).{0,8}(?:今天|今日).{0,8}(?:穿什么|怎么穿|穿搭|ootd)|"
+    r"(?:今天|今日)(?:的)?(?:穿搭|ootd).{0,8}(?:是什么|怎么样|怎么搭|给我看看)?",
+    re.IGNORECASE,
+)
+_OOTD_META_RE = re.compile(
+    r"(?:分析|评估|讨论|解释|检查|评审|修复|调试|实现|开发|设计|测试|处理|"
+    r"功能|方案|逻辑|模块|接口|代码|bug).{0,18}(?:穿搭|ootd)|"
+    r"(?:穿搭|ootd).{0,18}(?:功能|方案|逻辑|模块|接口|代码|bug)",
+    re.IGNORECASE,
+)
+
+
+def _likely_ootd_query(text: str) -> bool:
+    normalized = str(text or "").strip()
+    return bool(
+        normalized
+        and len(normalized) <= 240
+        and _QUICK_OOTD_RE.search(normalized)
+        and not _OOTD_META_RE.search(normalized)
+    )
+
+
+def _style_anchor(runtime: object) -> str:
+    profile = runtime.profile
+    return "；".join(
+        value
+        for value in (
+            profile.visual.appearance,
+            profile.visual.default_wardrobe,
+            profile.intent_summary,
+        )
+        if str(value or "").strip()
+    )
 
 
 def _plugin_root() -> Path:
@@ -65,7 +99,9 @@ def main() -> int:
             return 0
         prompt = payload.get("prompt")
         if not isinstance(prompt, str) or not (
-            _QUICK_PHOTO_RE.search(prompt) or _QUICK_SCOPE_RE.search(prompt)
+            _QUICK_PHOTO_RE.search(prompt)
+            or _QUICK_SCOPE_RE.search(prompt)
+            or _QUICK_OOTD_RE.search(prompt)
         ):
             return 0
 
@@ -85,6 +121,7 @@ def main() -> int:
             make_turn_token,
         )
         from companion_kit.hook_health import inspect_hook_bundle
+        from companion_kit.daily_look_store import DailyLookStore, DailyLookStoreError
         from companion_kit.photo_moment_store import PhotoMomentStore
 
         session_id = str(payload.get("session_id") or "")
@@ -154,9 +191,29 @@ def main() -> int:
             )
             return 0
 
-        # “陪伴任务怎么实现”之类的普通讨论可能命中快速关键词门，但不应因此
-        # 读取 Persona，更不能在尚未初始化时向普通任务注入配置提示。
-        if not likely_codex_photo_turn(prompt):
+        is_photo_turn = likely_codex_photo_turn(prompt)
+        # “陪伴任务怎么实现”或“设计 OOTD 功能”之类的普通讨论可能命中快速门，
+        # 但不应因此读取 Persona，更不能向未绑定任务注入人物状态。
+        if not is_photo_turn:
+            if not _likely_ootd_query(prompt):
+                return 0
+            try:
+                if not CompanionScopeStore(lock_timeout=0.25).is_bound(session_id):
+                    return 0
+            except CompanionScopeError:
+                return 0
+            runtime = load_codex_runtime_context(include_identity=False)
+            if runtime is None:
+                return 0
+            try:
+                daily_look = DailyLookStore(lock_timeout=0.25).ensure_today(
+                    profile_id=runtime.profile.id,
+                    style_anchor=_style_anchor(runtime),
+                )
+            except DailyLookStoreError:
+                daily_look = None
+            _record_companion_context_health()
+            _output_context(runtime.render_daily_look(daily_look))
             return 0
 
         runtime = load_codex_runtime_context()
@@ -201,11 +258,25 @@ def main() -> int:
             profile_id=runtime.profile.id,
             identity_version=runtime.profile.visual.identity_version,
         )
+        daily_look = None
+        if (
+            mode == "new"
+            and intent.identity_role is None
+            and runtime.profile.visual.is_locked
+        ):
+            try:
+                daily_look = DailyLookStore(lock_timeout=0.25).ensure_today(
+                    profile_id=runtime.profile.id,
+                    style_anchor=_style_anchor(runtime),
+                )
+            except DailyLookStoreError:
+                daily_look = None
         _output_context(
             runtime.render_photo(
                 mode=mode,
                 turn_token=token,
                 recent_moments=recent,
+                daily_look=daily_look,
                 control_path=(
                     _plugin_root()
                     / "skills"

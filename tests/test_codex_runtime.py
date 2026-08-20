@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from companion_kit.codex_runtime import load_codex_runtime_context
 from companion_kit.companion_scope import CompanionScopeStore
+from companion_kit.daily_look_store import DailyLookStore
 from companion_kit.hook_health import HookHealthStore, SESSION_START
 from companion_kit.identity_pack import BODY_SHAPE, PROFILE_FACE
 from companion_kit.initializer import initialize_profile
@@ -268,7 +269,8 @@ class CodexRuntimeTests(unittest.TestCase):
             self.assertIn(str(runtime.identity_reference), photo_rendered)
             self.assertIn("referenced_image_paths", photo_rendered)
             self.assertIn("唯一身份参考包", photo_rendered)
-            self.assertIn("COMPANION_KIT_PHOTO_V2", photo_rendered)
+            self.assertIn("COMPANION_KIT_PHOTO_V3", photo_rendered)
+            self.assertIn('"action":"one_shot"', photo_rendered)
             self.assertIn('"makeup":"<enum>"', photo_rendered)
             self.assertIn("妆容不机械逐张换", photo_rendered)
             self.assertNotIn("OPENAI_API_KEY", photo_rendered)
@@ -396,6 +398,46 @@ class CodexRuntimeTests(unittest.TestCase):
             self.assertNotIn(str(primary.path), broken_rendered)
             self.assertNotIn(str(side.path), broken_rendered)
             self.assertNotIn(str(body.path), broken_rendered)
+
+    def test_photo_context_carries_today_look_without_locking_hair_makeup_or_expression(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "companion-home"
+            with patch.dict(os.environ, {"COMPANION_HOME": str(home)}, clear=True):
+                initialize_profile(
+                    skill_root=SKILL_ROOT,
+                    template_id="calm_partner",
+                    display_name="简宁",
+                )
+                runtime = load_codex_runtime_context()
+                look = DailyLookStore(
+                    home / "private" / "daily-looks",
+                    clock=lambda: datetime(2026, 8, 20, 8, 0, tzinfo=UTC),
+                ).ensure_today(
+                    profile_id=runtime.profile.id,
+                    style_anchor=(
+                        runtime.profile.visual.appearance
+                        + "；"
+                        + runtime.profile.visual.default_wardrobe
+                    ),
+                )
+                assert look is not None
+
+                rendered = runtime.render_photo(
+                    mode="new",
+                    turn_token="ckp_" + "e" * 24,
+                    daily_look=look,
+                )
+                chat_context = runtime.render_daily_look(look)
+
+            self.assertIn("COMPANION_KIT_PHOTO_V3", rendered)
+            self.assertIn(look.look_id, rendered)
+            self.assertIn(look.title, rendered)
+            self.assertIn('"action":"use_daily"', rendered)
+            self.assertIn("不固定发型、表情和妆容", rendered)
+            self.assertLessEqual(len(rendered), 3_600)
+            self.assertIn(look.title, chat_context)
+            self.assertNotIn(look.look_id, chat_context)
+            self.assertNotIn("Hook", chat_context)
 
 
 if __name__ == "__main__":
