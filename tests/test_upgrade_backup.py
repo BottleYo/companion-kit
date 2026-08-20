@@ -129,7 +129,7 @@ class BackupManagerTests(unittest.TestCase):
 
             inventory = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.1",
+                product_version="0.9.0-dev.2",
                 clock=lambda: NOW,
             ).inspect()
 
@@ -194,7 +194,7 @@ class BackupManagerTests(unittest.TestCase):
             )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.1",
+                product_version="0.9.0-dev.2",
                 clock=lambda: NOW,
             )
 
@@ -226,7 +226,7 @@ class BackupManagerTests(unittest.TestCase):
             transient.write_text("temporary", encoding="utf-8")
             manager = BackupManager(
                 CompanionDataLayout.for_profile(profile),
-                product_version="0.9.0-dev.1",
+                product_version="0.9.0-dev.2",
                 clock=lambda: NOW,
             )
 
@@ -328,7 +328,7 @@ class BackupManagerTests(unittest.TestCase):
             )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.1",
+                product_version="0.9.0-dev.2",
                 clock=lambda: NOW,
             )
 
@@ -368,7 +368,7 @@ class BackupManagerTests(unittest.TestCase):
             pack.members[0].path.write_bytes(b"damaged")
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.1",
+                product_version="0.9.0-dev.2",
                 clock=lambda: NOW,
             )
 

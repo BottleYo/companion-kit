@@ -12,8 +12,8 @@ class PhotoMomentError(ValueError):
     """照片配方或工具控制信封不满足最小协议。"""
 
 
-PHOTO_MOMENT_SCHEMA_VERSION = 2
-PHOTO_ENVELOPE_SCHEMA_VERSION = 3
+PHOTO_MOMENT_SCHEMA_VERSION = 3
+PHOTO_ENVELOPE_SCHEMA_VERSION = 4
 _ENVELOPES = {
     1: (
         "[[COMPANION_KIT_PHOTO_V1]]",
@@ -27,8 +27,11 @@ _ENVELOPES = {
         "[[COMPANION_KIT_PHOTO_V3]]",
         "[[/COMPANION_KIT_PHOTO_V3]]",
     ),
+    4: (
+        "[[COMPANION_KIT_PHOTO_V4]]",
+        "[[/COMPANION_KIT_PHOTO_V4]]",
+    ),
 }
-_ENVELOPE_START, _ENVELOPE_END = _ENVELOPES[PHOTO_MOMENT_SCHEMA_VERSION]
 _MOMENT_FIELDS_V1 = {
     "mode",
     "scene",
@@ -41,9 +44,10 @@ _MOMENT_FIELDS_V1 = {
     "caption_act",
     "identity_version",
 }
-_MOMENT_FIELDS = _MOMENT_FIELDS_V1 | {"makeup"}
+_MOMENT_FIELDS_V2 = _MOMENT_FIELDS_V1 | {"makeup"}
+_MOMENT_FIELDS = _MOMENT_FIELDS_V2 | {"portrait_dynamics"}
 _ENVELOPE_FIELDS = {"schema_version", "turn_token", "photo_moment"}
-_ENVELOPE_FIELDS_V3 = _ENVELOPE_FIELDS | {"daily_look"}
+_ENVELOPE_FIELDS_WITH_DAILY_LOOK = _ENVELOPE_FIELDS | {"daily_look"}
 _TOKEN_RE = re.compile(r"^ckp_[0-9a-f]{24}$")
 
 _VALUES = {
@@ -107,6 +111,22 @@ _VALUES = {
         "custom",
         "unspecified",
     },
+    "portrait_dynamics": {
+        "direct_soft",
+        "three_quarter_soft",
+        "downward_private_smile",
+        "direct_open_smile",
+        "caught_mid_laugh",
+        "side_glance_half_smile",
+        "curious_tilt",
+        "direct_neutral",
+        "quiet_off_camera",
+        "downward_thoughtful",
+        "calm_three_quarter",
+        "sleepy_tilt",
+        "custom",
+        "unspecified",
+    },
     "time_band": {"morning", "day", "dusk", "night", "custom"},
     "intimacy_band": {
         "everyday",
@@ -155,6 +175,49 @@ _ROTATIONS = {
         "defined_eyes",
         "evening",
     ),
+    "portrait_dynamics": (
+        "direct_soft",
+        "three_quarter_soft",
+        "downward_private_smile",
+        "direct_open_smile",
+        "caught_mid_laugh",
+        "side_glance_half_smile",
+        "curious_tilt",
+        "direct_neutral",
+        "quiet_off_camera",
+        "downward_thoughtful",
+        "calm_three_quarter",
+        "sleepy_tilt",
+    ),
+}
+_PORTRAIT_DYNAMICS_BY_EXPRESSION = {
+    "soft_smile": (
+        "direct_soft",
+        "three_quarter_soft",
+        "downward_private_smile",
+    ),
+    "open_smile": ("direct_open_smile", "caught_mid_laugh"),
+    "quiet_direct": ("direct_neutral", "calm_three_quarter"),
+    "playful": (
+        "side_glance_half_smile",
+        "curious_tilt",
+        "caught_mid_laugh",
+    ),
+    "thoughtful": (
+        "quiet_off_camera",
+        "downward_thoughtful",
+        "calm_three_quarter",
+    ),
+    "calm_serious": (
+        "direct_neutral",
+        "calm_three_quarter",
+        "quiet_off_camera",
+    ),
+    "sleepy_relaxed": (
+        "sleepy_tilt",
+        "downward_private_smile",
+        "quiet_off_camera",
+    ),
 }
 _INTIMACY_ORDER = (
     "everyday",
@@ -177,6 +240,7 @@ class PhotoMoment:
     caption_act: str
     identity_version: int
     makeup: str = "unspecified"
+    portrait_dynamics: str = "unspecified"
 
     @classmethod
     def from_dict(cls, raw: object) -> PhotoMoment:
@@ -184,7 +248,13 @@ class PhotoMoment:
             raise PhotoMomentError("PhotoMoment 字段无效")
         fields = set(raw)
         if fields == _MOMENT_FIELDS_V1:
-            normalized = {**raw, "makeup": "unspecified"}
+            normalized = {
+                **raw,
+                "makeup": "unspecified",
+                "portrait_dynamics": "unspecified",
+            }
+        elif fields == _MOMENT_FIELDS_V2:
+            normalized = {**raw, "portrait_dynamics": "unspecified"}
         elif fields == _MOMENT_FIELDS:
             normalized = dict(raw)
         else:
@@ -215,6 +285,7 @@ class PhotoMoment:
             "hairstyle": self.hairstyle,
             "expression": self.expression,
             "makeup": self.makeup,
+            "portrait_dynamics": self.portrait_dynamics,
             "time_band": self.time_band,
             "intimacy_band": self.intimacy_band,
             "caption_act": self.caption_act,
@@ -230,9 +301,27 @@ class PhotoMoment:
                 f"关系表达上限：{intimacy}；即使原始描述更进一步也不得越过。"
             )
         lines = [
-            "人物主脸参考只固定脸部身份与稳定面部几何，不继承参考图或上一张成图的发型、表情、妆容、服饰、姿势和背景。",
+            "人物主脸参考只固定脸部身份与稳定面部几何，不继承参考图或上一张成图的发型、表情、头部角度、视线、嘴角弧度、妆容、服饰、姿势和背景。",
             "本次应像一张真实生活里刚拍下的照片，不是换背景的人像模板；保留自然皮肤、轻微不完美和合理环境细节。",
         ]
+        if self.framing in {
+            "half",
+            "three_quarter",
+            "full",
+            "mirror",
+            "over_shoulder",
+            "custom",
+        }:
+            lines.extend(
+                (
+                    "身体可见时采用偏高挑、修长但解剖自然的成年人物比例：头身比 1:7 到 1:8，肩宽约为头宽的 1.6 到 2 倍，颈部、躯干、髋部和腿部衔接完整；肩颈舒展、重心自然。若用户、Persona 或已确认体型参考有明确特征，以其为准。",
+                    "使用正常人像拍摄距离和透视，避免 0.5x 超广角、近距离俯拍或让头部异常靠近镜头；严禁大头娃娃、窄肩短颈、压缩躯干和短腿。高挑感来自自然成人骨架、站姿、穿搭和构图，不是缩小头部或暴力拉长四肢。脸部身份锁只锁五官和脸型，不能接管身体几何。",
+                )
+            )
+        else:
+            lines.append(
+                "使用自然成年人人像透视；头部与可见肩颈比例协调，不因脸部身份参考生成大头、窄肩或短颈。"
+            )
         for label, field, mapping in (
             ("场景", "scene", _SCENE_LABELS),
             ("动作", "activity", _ACTIVITY_LABELS),
@@ -246,7 +335,12 @@ class PhotoMoment:
         if self.expression != "custom":
             lines.append(
                 f"本次最终神态：{_EXPRESSION_LABELS[self.expression]}。"
-                "要让眼神、眉部和嘴部状态共同形成清楚可见的区别，不退回参考图的默认表情。"
+                "具体头部角度、视线和嘴部状态以下面的本次面部动态为准。"
+            )
+        if self.portrait_dynamics not in {"custom", "unspecified"}:
+            lines.append(
+                f"本次面部动态：{_PORTRAIT_DYNAMICS_LABELS[self.portrait_dynamics]}。"
+                "眼神、眉部、脸颊和嘴部肌肉要共同响应同一种当下情绪，保留左右轻微不对称和自然瞬间感。"
             )
         if self.makeup not in {"custom", "unspecified"}:
             lines.append(
@@ -254,7 +348,10 @@ class PhotoMoment:
                 "妆容随当下场景自然成立，不改变脸型、五官比例或人物辨识特征，也不套用统一瘦脸、大眼或网红脸。"
             )
         lines.append(
-            "主脸参考里可见的表情与妆容只是拍摄当时状态；上面的本次神态与妆容是当前照片的最终造型决定。"
+            "主脸参考里可见的表情、头部姿态、视线、嘴角和妆容都只是拍摄当时状态；上面的本次神态、面部动态与妆容才是当前照片的最终决定。"
+        )
+        lines.append(
+            "除非用户明确要求保持，当前照片不得照抄主脸参考或上一张照片的头部角度、视线和嘴角弧度；不要每张都正头直视、同一种标准微笑。"
         )
         lines.append(
             "用户在原始图片描述里明确点名的细节始终优先；custom 表示直接遵照原始描述。不要添加文字、水印、拼贴或分镜说明。"
@@ -266,12 +363,16 @@ class PhotoMoment:
         scene = _SCENE_LABELS.get(self.scene, "用户指定的场景")
         activity = _ACTIVITY_LABELS.get(self.activity, "用户指定的动作")
         expression = _EXPRESSION_LABELS.get(self.expression, "用户指定的神情")
+        portrait_dynamics = _PORTRAIT_DYNAMICS_LABELS.get(
+            self.portrait_dynamics,
+            "用户指定或自然发生的面部动态",
+        )
         makeup = _MAKEUP_LABELS.get(self.makeup, "用户指定或自然延续的妆容")
         caption = _CAPTION_LABELS.get(self.caption_act, "顺着当前对话自然接下去")
         intimacy = _INTIMACY_LABELS[self.intimacy_band]
         return (
             "只有图片工具真实成功返回后，才写人物会自然说出口的一两句话；没有真实结果就不说已经拍好。不要讲生成过程、模型、Hook、Provider、耗时或参数。"
-            f"这次的共同照片时刻是：{scene}，{activity}，{expression}，妆容方向是{makeup}；表达动作是“{caption}”；关系表达上限是“{intimacy}”。"
+            f"这次的共同照片时刻是：{scene}，{activity}，{expression}；面部动态是{portrait_dynamics}；妆容方向是{makeup}；表达动作是“{caption}”；关系表达上限是“{intimacy}”。"
             "让文字回应用户刚才的语境，并与实际可见画面呼应；若某个计划细节在成图中并不清楚，就不要硬说它已经出现。"
             "人物要有一点自己的态度或小心思，并留下一个让对话容易继续的口子；避免机械地问“喜欢吗”“还想看吗”，也不要复述规格清单。"
         )
@@ -311,13 +412,27 @@ _HAIRSTYLE_LABELS = {
     "textured": "做出与上一张不同的自然蓬松和纹理，不改变人物身份",
 }
 _EXPRESSION_LABELS = {
-    "soft_smile": "双眼看向镜头，嘴唇闭合，只有眼角和嘴角轻轻带笑",
-    "open_smile": "自然笑开，嘴唇微张并可见少量牙齿，脸颊随笑意抬起",
-    "quiet_direct": "不微笑，嘴唇完全放松，安静而稳定地直视镜头",
-    "playful": "俏皮地让一侧眉峰轻抬，嘴角形成不对称的半笑，眼神带一点逗弄",
-    "thoughtful": "视线离开镜头，眉间和嘴部放松，像刚想到一件事",
-    "calm_serious": "目光清醒坚定，眉形平稳，嘴角不带笑意但不显僵硬",
-    "sleepy_relaxed": "眼睑略放松，目光柔软，嘴部自然松弛，带一点刚醒或夜深的慵懒",
+    "soft_smile": "温柔放松，笑意克制而真实，不是每张相同的标准微笑",
+    "open_smile": "明显开心，面部肌肉随情绪自然参与，但不过度咧嘴或表演",
+    "quiet_direct": "安静清醒，情绪克制，不靠固定微笑讨好镜头",
+    "playful": "有一点灵动和逗弄感，但不做夸张卖萌或模板化表演",
+    "thoughtful": "像刚想到一件事，注意力短暂落在镜头之外，面部保持松弛",
+    "calm_serious": "清醒坚定，情绪稳定，不笑但也不僵硬或凶狠",
+    "sleepy_relaxed": "眼睑和面部肌肉自然放松，带一点刚醒或夜深的慵懒",
+}
+_PORTRAIT_DYNAMICS_LABELS = {
+    "direct_soft": "头部基本平正但保留轻微自然不对称，视线柔和地落在镜头上；嘴唇自然闭合，嘴角只有很浅的弧度，眼角同步带笑",
+    "three_quarter_soft": "头部向一侧转约 25–35°形成自然四分之三侧面，眼睛回看镜头；闭唇笑意轻，左右嘴角弧度略有差别",
+    "downward_private_smile": "下巴自然低约 5–10°，视线短暂向下或从下方抬回；嘴角像想起一件小事般轻轻上扬，不露齿",
+    "direct_open_smile": "头部不完全摆正，目光直接而明亮；嘴唇自然张开并露出少量牙齿，脸颊和眼角随笑意真实抬起",
+    "caught_mid_laugh": "头部轻微转动或后仰，像刚好被抓到笑起来的瞬间；眼睛自然眯起，嘴部张开但不夸张咧开",
+    "side_glance_half_smile": "头部向一侧自然转动约 15–20°，视线从侧面回到镜头附近；一侧眉峰轻抬，嘴角形成不对称的半笑",
+    "curious_tilt": "头部横向轻歪约 5–10°，视线带一点好奇地看向镜头；嘴唇微启，一侧眉毛自然稍高",
+    "direct_neutral": "头部保留几度自然偏转而非证件照式摆正，视线清楚直达镜头；嘴唇放松闭合，嘴角不带笑",
+    "quiet_off_camera": "头部轻转，视线落在镜头旁边或更远处；眉间和嘴部完全放松，像短暂停顿而不是刻意摆拍",
+    "downward_thoughtful": "下巴略低，眼睛看向手边或画面下方；嘴唇自然闭合或微启，眉部只有很轻的专注感",
+    "calm_three_quarter": "头部以克制的四分之三角度转开，视线平稳地回到镜头附近；嘴部中性，眉形放松而清醒",
+    "sleepy_tilt": "头部轻靠或微微侧倾，眼睑自然放松，视线柔软；嘴唇松弛，嘴角只有若有若无的弧度",
 }
 _MAKEUP_LABELS = {
     "bare": "接近素颜，只保留真实肤色、眉毛和唇色",
@@ -366,6 +481,38 @@ def _next_value(field: str, value: str, recent_values: Iterable[str]) -> str:
     return rotation[(start + 1) % len(rotation)]
 
 
+def _normalize_portrait_dynamics(
+    moment: PhotoMoment,
+    recent: tuple[PhotoMoment, ...],
+) -> PhotoMoment:
+    value = moment.portrait_dynamics
+    if value == "custom":
+        return moment
+    allowed = _PORTRAIT_DYNAMICS_BY_EXPRESSION.get(
+        moment.expression,
+        _ROTATIONS["portrait_dynamics"],
+    )
+    blocked = {
+        item.portrait_dynamics
+        for item in recent[-4:]
+        if item.portrait_dynamics != "unspecified"
+    }
+    if value in allowed and value not in blocked:
+        return moment
+    try:
+        start = allowed.index(value)
+    except ValueError:
+        start = -1
+    for offset in range(1, len(allowed) + 1):
+        candidate = allowed[(start + offset) % len(allowed)]
+        if candidate not in blocked:
+            return replace(moment, portrait_dynamics=candidate)
+    return replace(
+        moment,
+        portrait_dynamics=allowed[(start + 1) % len(allowed)],
+    )
+
+
 def normalize_photo_moment(
     candidate: PhotoMoment,
     *,
@@ -385,8 +532,10 @@ def normalize_photo_moment(
     )
     result = replace(candidate, intimacy_band=intimacy)
     history = tuple(item for item in recent if item.mode == "new")
-    if result.mode != "new" or not history:
+    if result.mode != "new":
         return result
+    if not history:
+        return _normalize_portrait_dynamics(result, history)
     previous = history[-1]
     changes: dict[str, str] = {}
     for field in ("hairstyle", "expression"):
@@ -398,6 +547,7 @@ def normalize_photo_moment(
                 (getattr(item, field) for item in history[-4:]),
             )
     result = replace(result, **changes)
+    result = _normalize_portrait_dynamics(result, history)
     if (
         result.makeup not in {"custom", "unspecified"}
         and len(history) >= 2
@@ -452,11 +602,7 @@ def encode_photo_envelope(
 ) -> str:
     if not _TOKEN_RE.fullmatch(str(turn_token or "")):
         raise PhotoMomentError("照片回合标记无效")
-    version = (
-        PHOTO_ENVELOPE_SCHEMA_VERSION
-        if daily_look is not None
-        else PHOTO_MOMENT_SCHEMA_VERSION
-    )
+    version = PHOTO_ENVELOPE_SCHEMA_VERSION
     payload_object: dict[str, object] = {
         "schema_version": version,
         "turn_token": turn_token,
@@ -518,25 +664,37 @@ def parse_photo_envelope_details(
         payload = json.loads(raw_json)
     except json.JSONDecodeError as exc:
         raise PhotoMomentError("Companion 照片控制信封无效") from exc
-    expected_envelope_fields = (
-        _ENVELOPE_FIELDS_V3 if version == PHOTO_ENVELOPE_SCHEMA_VERSION else _ENVELOPE_FIELDS
-    )
+    if version == 3:
+        expected_envelope_fields = (_ENVELOPE_FIELDS_WITH_DAILY_LOOK,)
+    elif version == PHOTO_ENVELOPE_SCHEMA_VERSION:
+        expected_envelope_fields = (
+            _ENVELOPE_FIELDS,
+            _ENVELOPE_FIELDS_WITH_DAILY_LOOK,
+        )
+    else:
+        expected_envelope_fields = (_ENVELOPE_FIELDS,)
     if (
         not isinstance(payload, dict)
-        or set(payload) != expected_envelope_fields
+        or set(payload) not in expected_envelope_fields
         or payload.get("schema_version") != version
         or payload.get("turn_token") != expected_token
     ):
         raise PhotoMomentError("Companion 照片控制信封与当前回合不匹配")
     moment_raw = payload.get("photo_moment")
-    expected_fields = _MOMENT_FIELDS_V1 if version == 1 else _MOMENT_FIELDS
+    expected_fields = (
+        _MOMENT_FIELDS_V1
+        if version == 1
+        else _MOMENT_FIELDS_V2
+        if version in {2, 3}
+        else _MOMENT_FIELDS
+    )
     if not isinstance(moment_raw, dict) or set(moment_raw) != expected_fields:
         raise PhotoMomentError("Companion 照片控制信封与当前回合不匹配")
     cleaned = prompt[:start].rstrip()
     if not cleaned:
         raise PhotoMomentError("图片提示缺少真实画面描述")
     daily_look: DailyLookDirective | None = None
-    if version == PHOTO_ENVELOPE_SCHEMA_VERSION:
+    if "daily_look" in payload:
         try:
             daily_look = DailyLookDirective.from_dict(payload.get("daily_look"))
         except DailyLookError as exc:
