@@ -14,6 +14,7 @@ from typing import Callable, Iterable
 from uuid import uuid4
 
 from .config import ConfigError, load_profile
+from .daily_look_store import DailyLookStore, DailyLookStoreError
 from .file_lock import InterprocessLockError, exclusive_file_lock
 from .image_assets import ImageAssetError, ImageAssetStore
 from .initializer import InitializationError, default_profile_path, safe_profile_path
@@ -36,6 +37,7 @@ class CompanionDataLayout:
     private_root: Path
     images_root: Path
     photo_moments_root: Path
+    daily_looks_root: Path
     relationship_database: Path
     backups_root: Path
     system_root: Path
@@ -65,6 +67,7 @@ class CompanionDataLayout:
             private_root=root / "private",
             images_root=root / "private" / "images",
             photo_moments_root=root / "private" / "photo-moments",
+            daily_looks_root=root / "private" / "daily-looks",
             relationship_database=root / "private" / "relationships.sqlite3",
             backups_root=root / "backups",
             system_root=root / "system",
@@ -88,6 +91,7 @@ class CompanionDataLayout:
             private_root=root / "private",
             images_root=root / "private" / "images",
             photo_moments_root=root / "private" / "photo-moments",
+            daily_looks_root=root / "private" / "daily-looks",
             relationship_database=root / "private" / "relationships.sqlite3",
             backups_root=root / "backups",
             system_root=root / "system",
@@ -212,6 +216,8 @@ def _kind_for(relative_path: str) -> str:
         return "relationship_database"
     if relative_path.startswith("private/photo-moments/"):
         return "photo_moment"
+    if relative_path.startswith("private/daily-looks/"):
+        return "daily_look"
     return "identity_asset"
 
 
@@ -429,9 +435,19 @@ class BackupManager:
             data_root=self.layout.root,
             excluded_parts=("runtime",),
         )
+        daily_look_files = _iter_tree_files(
+            self.layout.daily_looks_root,
+            data_root=self.layout.root,
+            excluded_parts=("runtime",),
+        )
         return tuple(
             sorted(
-                (*profile_files, *image_files, *photo_moment_files),
+                (
+                    *profile_files,
+                    *image_files,
+                    *photo_moment_files,
+                    *daily_look_files,
+                ),
                 key=lambda item: item.relative_path,
             )
         )
@@ -441,12 +457,14 @@ class BackupManager:
         warnings: list[str] = []
         profile_schema: int | None = None
         identity_configured = False
+        profile_id: str | None = None
 
         if self.layout.profile_path.exists():
             try:
                 _safe_path(self.layout.profile_path)
                 profile = load_profile(self.layout.profile_path)
                 profile_schema = profile.schema_version
+                profile_id = profile.id
                 identity_configured = profile.visual.is_locked
                 if identity_configured:
                     if not self.layout.images_root.is_dir():
@@ -461,6 +479,14 @@ class BackupManager:
                 blockers.append(f"Persona 无法安全读取：{exc}")
             except ImageAssetError as exc:
                 blockers.append(f"人物身份包无法安全读取：{exc}")
+
+        if profile_id is not None and self.layout.daily_looks_root.exists():
+            try:
+                DailyLookStore(self.layout.daily_looks_root).inspect(
+                    profile_id=profile_id
+                )
+            except DailyLookStoreError as exc:
+                blockers.append(f"每日穿搭记录无法安全读取：{exc}")
 
         relationship_schema, database_error = _database_status(
             self.layout.relationship_database
@@ -605,7 +631,7 @@ class BackupManager:
                 if tuple(item.signature() for item in before) != tuple(
                     item.signature() for item in after
                 ):
-                    raise BackupError("备份期间 Persona 或人物参考发生变化，请重试")
+                    raise BackupError("备份期间用户资料发生变化，请重试")
 
                 manifest: dict[str, object] = {
                     "schema_version": BACKUP_SCHEMA_VERSION,
@@ -624,6 +650,7 @@ class BackupManager:
                         "private/images/runtime",
                         "private/codex-image-receipts",
                         "private/photo-moments/runtime",
+                        "private/daily-looks/runtime",
                     ],
                     "items": sorted(items, key=lambda item: str(item["relative_path"])),
                 }

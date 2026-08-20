@@ -19,6 +19,11 @@
       .pill { padding: 9px; border-radius: 12px; text-align: center; background: color-mix(in srgb, CanvasText 5%, transparent); }
       .pill b { display: block; font-size: 13px; }
       .pill span { font-size: 11px; color: color-mix(in srgb, CanvasText 62%, transparent); }
+      .look { margin: 0 0 16px; padding: 14px; border-radius: 14px; background: color-mix(in srgb, #7c5cff 10%, transparent); }
+      .look-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+      .look-title { font-weight: 700; font-size: 14px; }
+      .look-copy { margin: 5px 0 10px; color: color-mix(in srgb, CanvasText 72%, transparent); font-size: 12px; line-height: 1.55; }
+      .look-state { white-space: nowrap; font-size: 11px; color: color-mix(in srgb, CanvasText 58%, transparent); }
       .actions { display: flex; flex-wrap: wrap; gap: 8px; }
       details { margin: 14px 0; padding: 12px; border-radius: 14px; background: color-mix(in srgb, CanvasText 5%, transparent); }
       summary { cursor: pointer; font-weight: 650; font-size: 13px; }
@@ -48,6 +53,18 @@
         <div class="pill"><b id="identity">—</b><span>固定形象</span></div>
         <div class="pill"><b id="hooks">—</b><span>Hooks</span></div>
         <div class="pill"><b id="scope">—</b><span>陪伴任务</span></div>
+      </section>
+      <section class="look">
+        <div class="look-head"><div><div class="look-title" id="lookTitle">今天穿什么</div><div class="look-copy" id="lookCopy">还没安排。拍第一张照片时会自动搭，也可以现在看看。</div></div><div id="lookState" class="look-state">未安排</div></div>
+        <label>想改一点？<input id="lookNote" maxlength="160" placeholder="比如：今天想穿得更利落一点，加一副眼镜" /></label>
+        <div class="actions" style="margin-top:10px">
+          <button id="planLook" class="primary">安排今天</button>
+          <button id="rerollLook">换一套</button>
+          <button id="customizeLook">按这句话调整</button>
+          <button id="rememberLook">记住这种感觉</button>
+          <button id="toggleLook">暂停每日穿搭</button>
+        </div>
+        <div id="lookHint" class="foot">只固定当天的穿搭线索；脸、发型、表情和妆容各管各的。</div>
       </section>
       <details id="setup">
         <summary>创建或调整 Persona</summary>
@@ -99,9 +116,13 @@
       function rpcNotify(method, params) { post({ jsonrpc: "2.0", method, params }); }
       function label(value, yes, no) { return value ? yes : no; }
       function applyToolResult(result) {
+        const previousVersion = privateUiState?.profile_version ?? null;
+        const nextPrivateState = result?._meta?.["companion-kit/ui-state"] || privateUiState;
         toolOutput = result?.structuredContent || toolOutput;
-        privateUiState = result?._meta?.["companion-kit/ui-state"] || privateUiState;
-        personaHydrated = false;
+        privateUiState = nextPrivateState;
+        if (!personaHydrated || previousVersion !== (nextPrivateState?.profile_version ?? null)) {
+          personaHydrated = false;
+        }
         render();
       }
       function render() {
@@ -114,6 +135,34 @@
         byId("hooks").textContent = label(toolOutput.hooks?.session_verified, "已验证", "待审核");
         const count = Number(toolOutput.scope?.active_task_count || 0);
         byId("scope").textContent = count > 0 ? `${count} 个` : "未连接";
+        const daily = privateUiState?.daily_look;
+        const look = daily?.current;
+        const enabled = daily?.enabled !== false;
+        const available = daily?.available !== false;
+        if (!available) {
+          byId("lookTitle").textContent = "今天穿什么";
+          byId("lookCopy").textContent = "穿搭状态暂时读不到，现有 Persona 和照片没有变化。";
+          byId("lookState").textContent = "暂不可用";
+        } else if (!enabled) {
+          byId("lookTitle").textContent = look?.title || "今天穿什么";
+          byId("lookCopy").textContent = "已暂停。原来的记录还在，照片会先按你当次说的来。";
+          byId("lookState").textContent = "已暂停";
+        } else if (look) {
+          byId("lookTitle").textContent = look.title || "今天的穿搭";
+          byId("lookCopy").textContent = `${look.hero_piece}；${look.palette}；${look.accent}`;
+          byId("lookState").textContent = look.status === "confirmed" ? "已出片" : "待第一张照片";
+        } else {
+          byId("lookTitle").textContent = "今天穿什么";
+          byId("lookCopy").textContent = enabled ? "还没安排。拍第一张照片时会自动搭，也可以现在看看。" : "已暂停。照片会按你当次说的来，不保留当天穿搭。";
+          byId("lookState").textContent = enabled ? "未安排" : "已暂停";
+        }
+        byId("planLook").disabled = !available || !enabled || !!look || !toolOutput.persona?.configured;
+        byId("planLook").textContent = look ? "今天已安排" : "安排今天";
+        byId("rerollLook").disabled = !available || !enabled || !look;
+        byId("customizeLook").disabled = !available || !enabled || !look;
+        byId("rememberLook").disabled = !available || !enabled || !look;
+        byId("toggleLook").disabled = !available || !toolOutput.persona?.configured;
+        byId("toggleLook").textContent = enabled ? "暂停每日穿搭" : "恢复每日穿搭";
         const form = privateUiState?.persona_form;
         if (form && !personaHydrated) {
           byId("description").value = form.description || "";
@@ -139,7 +188,7 @@
         }
       }, { passive: true });
       const ready = rpcRequest("ui/initialize", {
-        appInfo: { name: "companion-kit-widget", version: "0.8.0-dev.1" },
+        appInfo: { name: "companion-kit-widget", version: "0.9.0-dev.1" },
         appCapabilities: {},
         protocolVersion: "2026-01-26"
       }).then(() => rpcNotify("ui/notifications/initialized", {}));
@@ -176,6 +225,49 @@
           button.disabled = false;
         }
       });
+      async function updateDailyLook(action) {
+        const look = privateUiState?.daily_look?.current;
+        const note = byId("lookNote").value.trim();
+        if (action === "customize" && !note) {
+          byId("lookHint").textContent = "先写一句想怎么调整，比如“更利落一点，加一副眼镜”。";
+          return;
+        }
+        const buttons = ["planLook", "rerollLook", "customizeLook", "rememberLook", "toggleLook"];
+        buttons.forEach((id) => { byId(id).disabled = true; });
+        byId("lookHint").textContent = "正在搭今天这一套…";
+        try {
+          await ready;
+          const result = await rpcRequest("tools/call", {
+            name: "update_companion_daily_look",
+            arguments: {
+              action,
+              expected_look_id: ["reroll", "customize", "remember"].includes(action) ? (look?.look_id || null) : null,
+              note: action === "customize" ? note : null,
+              confirm: true
+            }
+          });
+          applyToolResult(result);
+          if (action === "customize") byId("lookNote").value = "";
+          const messages = {
+            plan: "今天这一套安排好了；第一张真实照片拍成后才算正式穿上。",
+            reroll: "换了一套。还不对的话，可以继续换或写一句微调。",
+            customize: "按你说的调整好了；明确要求会盖过自动搭配。",
+            remember: "记住了。以后会更常往这种感觉靠，但不会天天复制。",
+            pause: "已暂停。之后每张照片只按当次要求来。",
+            resume: "已恢复。今天继续保持轻量的穿搭连续性。"
+          };
+          byId("lookHint").textContent = messages[action] || "今日穿搭已更新。";
+        } catch (_) {
+          byId("lookHint").textContent = "这次没有改成功，原来的今日穿搭没有变化。";
+        } finally {
+          render();
+        }
+      }
+      byId("planLook").addEventListener("click", () => updateDailyLook("plan"));
+      byId("rerollLook").addEventListener("click", () => updateDailyLook("reroll"));
+      byId("customizeLook").addEventListener("click", () => updateDailyLook("customize"));
+      byId("rememberLook").addEventListener("click", () => updateDailyLook("remember"));
+      byId("toggleLook").addEventListener("click", () => updateDailyLook(privateUiState?.daily_look?.enabled === false ? "resume" : "pause"));
       byId("savePersona").addEventListener("click", async () => {
         const button = byId("savePersona");
         button.disabled = true;

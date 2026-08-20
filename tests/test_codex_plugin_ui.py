@@ -107,6 +107,7 @@ class CodexPluginUiTests(unittest.TestCase):
                     "save_companion_persona",
                     "set_companion_primary_face",
                     "clear_companion_task_bindings",
+                    "update_companion_daily_look",
                 ],
             )
             self.assertTrue(tools[0]["annotations"]["readOnlyHint"])
@@ -133,6 +134,8 @@ class CodexPluginUiTests(unittest.TestCase):
             self.assertIn("event.source !== window.parent", html)
             self.assertIn("把这个任务设为陪伴任务", html)
             self.assertIn("退出陪伴任务", html)
+            self.assertIn("今天穿什么", html)
+            self.assertIn('name: "update_companion_daily_look"', html)
             self.assertIn('writeText("/hooks")', html)
             self.assertNotIn("https://", html)
             self.assertNotIn("http://", html)
@@ -161,6 +164,123 @@ class CodexPluginUiTests(unittest.TestCase):
             self.assertNotIn("不应出现在工具结果里的名字", model_visible)
             self.assertNotIn("session_id", serialized)
             self.assertNotIn("reference_id", serialized)
+            self.assertFalse((home / "private" / "daily-looks").exists())
+
+    def test_plugin_ui_plans_adjusts_and_pauses_daily_look_privately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "companion-home"
+            initialize_profile(
+                skill_root=SKILL_ROOT,
+                template_id="calm_partner",
+                display_name="只应留在私有面板",
+                output=home / "profiles" / "default.toml",
+            )
+
+            planned = _run_server(
+                home,
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 20,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "update_companion_daily_look",
+                            "arguments": {
+                                "action": "plan",
+                                "expected_look_id": None,
+                                "note": None,
+                                "confirm": True,
+                            },
+                        },
+                    }
+                ],
+            )[0]["result"]
+            look = planned["_meta"]["companion-kit/ui-state"]["daily_look"][
+                "current"
+            ]
+            self.assertRegex(look["look_id"], r"^look_[0-9a-f]{24}$")
+            self.assertEqual(look["status"], "planned")
+            model_visible = json.dumps(
+                {
+                    "content": planned["content"],
+                    "structuredContent": planned["structuredContent"],
+                },
+                ensure_ascii=False,
+            )
+            self.assertNotIn(look["title"], model_visible)
+            self.assertNotIn("只应留在私有面板", model_visible)
+
+            customized = _run_server(
+                home,
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 21,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "update_companion_daily_look",
+                            "arguments": {
+                                "action": "customize",
+                                "expected_look_id": look["look_id"],
+                                "note": "更利落一点，加一副细框眼镜",
+                                "confirm": True,
+                            },
+                        },
+                    }
+                ],
+            )[0]["result"]
+            adjusted = customized["_meta"]["companion-kit/ui-state"][
+                "daily_look"
+            ]["current"]
+            self.assertNotEqual(adjusted["look_id"], look["look_id"])
+            self.assertIn("细框眼镜", adjusted["hero_piece"])
+
+            paused = _run_server(
+                home,
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 22,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "update_companion_daily_look",
+                            "arguments": {
+                                "action": "pause",
+                                "expected_look_id": None,
+                                "note": None,
+                                "confirm": True,
+                            },
+                        },
+                    }
+                ],
+            )[0]["result"]
+            self.assertFalse(
+                paused["_meta"]["companion-kit/ui-state"]["daily_look"][
+                    "enabled"
+                ]
+            )
+            self.assertTrue((home / "private" / "daily-looks").is_dir())
+
+            rejected = _run_server(
+                home,
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 23,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "update_companion_daily_look",
+                            "arguments": {
+                                "action": "reroll",
+                                "expected_look_id": look["look_id"],
+                                "note": None,
+                                "confirm": True,
+                            },
+                        },
+                    }
+                ],
+            )[0]
+            self.assertEqual(rejected["error"]["code"], -32602)
 
     def test_plugin_ui_can_clear_only_task_bindings_after_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,7 +10,10 @@ import unittest
 from unittest.mock import patch
 
 from companion_kit.codex_image_receipts import CodexImageReceiptStore
+from companion_kit.companion_scope import CompanionScopeStore
 from companion_kit.codex_turn import make_turn_token
+from companion_kit.daily_look_store import DailyLookStore
+from companion_kit.daily_look import DailyLookDirective, DailyLookProposal
 from companion_kit.file_lock import exclusive_file_lock
 from companion_kit.hook_health import inspect_hook_bundle
 from companion_kit.image_assets import ImageAssetStore
@@ -194,7 +197,8 @@ class CodexPhotoHookTests(unittest.TestCase):
             output = json.loads(completed.stdout)
             context = output["hookSpecificOutput"]["additionalContext"]
             self.assertIn(str(primary.path), context)
-            self.assertIn("COMPANION_KIT_PHOTO_V2", context)
+            self.assertIn("COMPANION_KIT_PHOTO_V3", context)
+            self.assertIn('"action":"use_daily"', context)
             self.assertIn("直接调用", context)
             self.assertNotIn("我想看你现在的样子", context)
             self.assertNotIn("OPENAI_API_KEY", context)
@@ -209,6 +213,14 @@ class CodexPhotoHookTests(unittest.TestCase):
                 )
             self.assertIsNotNone(ticket)
             self.assertEqual(ticket.mode, "new")
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                today = DailyLookStore().current(profile_id="companion")
+            self.assertIsNotNone(today)
+            self.assertIn(today.look_id, context)
 
     def test_explicit_persona_creation_prompt_does_not_bypass_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -233,7 +245,7 @@ class CodexPhotoHookTests(unittest.TestCase):
                 "additionalContext"
             ]
             self.assertIn(str(primary.path), context)
-            self.assertIn("COMPANION_KIT_PHOTO_V2", context)
+            self.assertIn("COMPANION_KIT_PHOTO_V3", context)
             with patch.dict(
                 os.environ,
                 {"COMPANION_HOME": str(home)},
@@ -245,6 +257,91 @@ class CodexPhotoHookTests(unittest.TestCase):
                 )
             self.assertIsNotNone(ticket)
             self.assertEqual(ticket.mode, "new")
+
+    def test_bound_ootd_question_loads_today_look_without_starting_imagegen(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+            _lock_identity(home)
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                CompanionScopeStore().bind("ootd-session")
+
+            completed = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "ootd-session",
+                    "turn_id": "ootd-turn",
+                    "prompt": "你今天穿什么？今日 OOTD 是什么",
+                },
+                environment,
+            )
+
+            self.assertEqual(completed.returncode, 0)
+            context = json.loads(completed.stdout)["hookSpecificOutput"][
+                "additionalContext"
+            ]
+            self.assertIn("今天的穿搭卡", context)
+            self.assertNotIn("imagegen", context)
+            self.assertNotIn("COMPANION_KIT_PHOTO", context)
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                self.assertIsNotNone(
+                    DailyLookStore().current(profile_id="companion")
+                )
+                self.assertIsNone(
+                    PhotoMomentStore().turn_ticket(
+                        session_id="ootd-session",
+                        turn_id="ootd-turn",
+                    )
+                )
+
+    def test_unbound_ootd_phrase_is_silent_and_does_not_create_a_theme(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+            _lock_identity(home)
+
+            completed = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "ordinary-session",
+                    "turn_id": "ordinary-turn",
+                    "prompt": "你今天穿什么？",
+                },
+                environment,
+            )
+
+            self.assertEqual(completed.stdout, "")
+            self.assertFalse((home / "private" / "daily-looks").exists())
+
+    def test_ootd_software_discussion_does_not_load_persona_or_create_a_theme(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+
+            completed = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "ootd-design-session",
+                    "turn_id": "ootd-design-turn",
+                    "prompt": "分析一下今天的 OOTD 功能该怎么设计和测试",
+                },
+                environment,
+            )
+
+            self.assertEqual(completed.returncode, 0)
+            self.assertEqual(completed.stdout, "")
+            self.assertFalse((home / "private" / "daily-looks").exists())
 
     def test_explicit_identity_enhancement_loads_only_the_requested_role(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1029,6 +1126,268 @@ class CodexPhotoHookTests(unittest.TestCase):
                         identity_version=1,
                     )
                 )
+
+    def test_daily_look_is_applied_and_confirmed_only_after_real_image(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, codex_home = self._environment(root)
+            primary = _lock_identity(home)
+            session_id = "daily-look-session"
+            turn_id = "daily-look-turn"
+            tool_use_id = "daily-look-call"
+            token = make_turn_token(
+                session_id=session_id,
+                turn_id=turn_id,
+                mode="new",
+                hook_bundle_digest=inspect_hook_bundle(PROJECT_ROOT).hook_bundle_digest,
+            )
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                look_store = DailyLookStore()
+                look = look_store.ensure_today(
+                    profile_id="companion",
+                    style_anchor="温柔自然，舒适干净",
+                )
+                assert look is not None
+                PhotoMomentStore().issue_turn(
+                    profile_id="companion",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    mode="new",
+                    turn_token=token,
+                )
+            prompt = "自然生活感的半身自拍" + encode_photo_envelope(
+                token,
+                _moment(),
+                daily_look=DailyLookDirective.from_dict(
+                    {
+                        "action": "use_daily",
+                        "look_id": look.look_id,
+                        "proposal": None,
+                    }
+                ),
+            )
+
+            pre = _run_hook(
+                PRE_TOOL_HOOK,
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "tool_use_id": tool_use_id,
+                    "tool_name": "image_gen__imagegen",
+                    "tool_input": {"prompt": prompt},
+                },
+                environment,
+            )
+
+            pre_output = json.loads(pre.stdout)["hookSpecificOutput"]
+            self.assertEqual(pre_output["permissionDecision"], "allow")
+            updated = pre_output["updatedInput"]
+            self.assertEqual(updated["referenced_image_paths"], [str(primary.path)])
+            self.assertIn(look.title, updated["prompt"])
+            self.assertIn("只固定今天的穿搭锚点", updated["prompt"])
+            self.assertNotIn("COMPANION_KIT_PHOTO_V3", updated["prompt"])
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                self.assertEqual(
+                    DailyLookStore().current(profile_id="companion").status,
+                    "planned",
+                )
+
+            generated = codex_home / "generated_images" / "daily-look.png"
+            generated.parent.mkdir(parents=True, exist_ok=True)
+            generated.write_bytes(tiny_png(metadata=b"daily-look"))
+            post = _run_hook(
+                POST_TOOL_HOOK,
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "tool_use_id": tool_use_id,
+                    "tool_name": "image_gen__imagegen",
+                    "tool_response": {"output_hint": str(generated)},
+                },
+                environment,
+            )
+
+            caption_context = json.loads(post.stdout)["hookSpecificOutput"][
+                "additionalContext"
+            ]
+            self.assertIn(look.title, caption_context)
+            self.assertIn("画面里确实可见", caption_context)
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                self.assertEqual(
+                    DailyLookStore().current(profile_id="companion").status,
+                    "confirmed",
+                )
+
+    def test_failed_daily_look_photo_discards_pending_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+            _lock_identity(home)
+            session_id = "failed-look-session"
+            turn_id = "failed-look-turn"
+            tool_use_id = "failed-look-call"
+            token = make_turn_token(
+                session_id=session_id,
+                turn_id=turn_id,
+                mode="new",
+                hook_bundle_digest=inspect_hook_bundle(PROJECT_ROOT).hook_bundle_digest,
+            )
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                look = DailyLookStore().ensure_today(
+                    profile_id="companion",
+                    style_anchor="自然松弛",
+                )
+                assert look is not None
+                PhotoMomentStore().issue_turn(
+                    profile_id="companion",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    mode="new",
+                    turn_token=token,
+                )
+            pre = _run_hook(
+                PRE_TOOL_HOOK,
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "tool_use_id": tool_use_id,
+                    "tool_name": "image_gen__imagegen",
+                    "tool_input": {
+                        "prompt": "自然自拍"
+                        + encode_photo_envelope(
+                            token,
+                            _moment(),
+                            daily_look=DailyLookDirective.from_dict(
+                                {
+                                    "action": "use_daily",
+                                    "look_id": look.look_id,
+                                    "proposal": None,
+                                }
+                            ),
+                        )
+                    },
+                },
+                environment,
+            )
+            self.assertEqual(
+                json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            failed = _run_hook(
+                POST_TOOL_HOOK,
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "tool_use_id": tool_use_id,
+                    "tool_name": "image_gen__imagegen",
+                    "tool_response": {"error": "provider failed"},
+                },
+                environment,
+            )
+            self.assertEqual(failed.stdout, "")
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                store = DailyLookStore()
+                self.assertEqual(store.current(profile_id="companion").status, "planned")
+                self.assertIsNone(
+                    store.peek_for_photo(
+                        profile_id="companion",
+                        session_id=session_id,
+                        tool_use_id=tool_use_id,
+                    )
+                )
+
+    def test_edit_photo_rejects_a_daily_replace_directive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+            _lock_identity(home)
+            session_id = "edit-look-session"
+            turn_id = "edit-look-turn"
+            token = make_turn_token(
+                session_id=session_id,
+                turn_id=turn_id,
+                mode="edit_previous",
+                hook_bundle_digest=inspect_hook_bundle(PROJECT_ROOT).hook_bundle_digest,
+            )
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                look = DailyLookStore().ensure_today(
+                    profile_id="companion",
+                    style_anchor="利落",
+                )
+                assert look is not None
+                PhotoMomentStore().issue_turn(
+                    profile_id="companion",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    mode="edit_previous",
+                    turn_token=token,
+                )
+            directive = DailyLookDirective.from_dict(
+                {
+                    "action": "replace_daily",
+                    "look_id": look.look_id,
+                    "proposal": DailyLookProposal.from_dict(
+                        {
+                            "title": "不该生效",
+                            "palette": "黑白",
+                            "silhouette": "直线",
+                            "hero_piece": "白衬衫",
+                            "accent": "腕表",
+                        }
+                    ).to_dict(),
+                }
+            )
+            completed = _run_hook(
+                PRE_TOOL_HOOK,
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "tool_use_id": "edit-look-call",
+                    "tool_name": "image_gen__imagegen",
+                    "tool_input": {
+                        "prompt": "只改上一张的发型"
+                        + encode_photo_envelope(
+                            token,
+                            _moment(mode="edit_previous"),
+                            daily_look=directive,
+                        ),
+                        "referenced_image_paths": [str(root / "missing.png")],
+                    },
+                },
+                environment,
+            )
+            decision = json.loads(completed.stdout)["hookSpecificOutput"]
+            self.assertEqual(decision["permissionDecision"], "deny")
+            self.assertIn("编辑上一张", decision["permissionDecisionReason"])
 
     def test_pre_tool_identity_lock_contention_denies_before_hook_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

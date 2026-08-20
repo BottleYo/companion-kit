@@ -20,7 +20,7 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/codex_prompt_context.py\"",
             "timeout": 2,
-            "additionalContextLimit": 3400
+            "additionalContextLimit": 3800
           }
         ]
       }

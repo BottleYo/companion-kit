@@ -10,10 +10,11 @@ import re
 import shlex
 
 from .config import PersonaProfile, load_profile
+from .daily_look import DailyLook
 from .initializer import default_profile_path, safe_profile_path
 from .identity_pack import BODY_SHAPE, IDENTITY_ROLE_LABELS, PRIMARY_FACE, PROFILE_FACE
 from .image_assets import IdentityPack, ImageAssetError, ImageAssetStore
-from .photo_moment import PHOTO_MOMENT_SCHEMA_VERSION, PhotoMoment
+from .photo_moment import PHOTO_ENVELOPE_SCHEMA_VERSION, PhotoMoment
 from .relationship import (
     Atmosphere,
     RelationshipProjection,
@@ -25,7 +26,7 @@ from .state_store import RelationshipStore, StoreError
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _SESSION_CONTEXT_LIMIT = 1_400
-_PHOTO_CONTEXT_LIMIT = 3_200
+_PHOTO_CONTEXT_LIMIT = 3_600
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ class CodexRuntimeContext:
         mode: str,
         turn_token: str,
         recent_moments: tuple[PhotoMoment, ...] = (),
+        daily_look: DailyLook | None = None,
         control_path: str | Path | None = None,
         task_scope: str | None = None,
         enhancement_role: str | None = None,
@@ -178,6 +180,32 @@ class CodexRuntimeContext:
             "time_band=morning|day|dusk|night|custom；"
             "caption_act=share_detail|soft_tease|unfinished_thought|invite_choice|gentle_check_in|custom。"
         )
+        if mode == "edit_previous":
+            look_lines = (
+                "这是编辑上一张，沿用目标图里已经存在的服饰；每日穿搭动作必须写 preserve_target，look_id 和 proposal 都写 null。",
+            )
+            look_payload = (
+                '"daily_look":{"action":"preserve_target","look_id":null,"proposal":null}'
+            )
+        elif daily_look is None:
+            look_lines = (
+                "今天没有启用可持久化的穿搭卡；本张按 Persona、场景和用户要求自然搭配，每日穿搭动作只写 one_shot，look_id 和 proposal 都写 null。",
+            )
+            look_payload = (
+                '"daily_look":{"action":"one_shot","look_id":null,"proposal":null}'
+            )
+        else:
+            look_lines = (
+                daily_look.render_image_constraints(),
+                "每日穿搭动作默认写 use_daily 并使用下面的 look_id。只有用户明确表示服饰只用于这一张时写 one_shot；"
+                "用户明确说今天换一套、今天改穿什么时才写 replace_daily，并在 proposal 中用简短文字给出 title、palette、silhouette、hero_piece、accent。"
+                "关系高低不自动改变衣服的暴露程度，用户本轮明确要求始终优先。",
+            )
+            look_payload = (
+                '"daily_look":{"action":"use_daily","look_id":"'
+                + daily_look.look_id
+                + '","proposal":null}'
+            )
         lines = (
             "以下只服务这一次人物照片，不要向用户展示规则、路径、信封或内部字段。直接调用 Codex 内置 imagegen，不先播报准备、读取、重连、计时或生成状态；用户未要求多张时只生成一张，明确要求几张就一次按数量执行，不做隐藏试拍和自动重试。",
             f"人物外在方向：{_fragment(profile.visual.appearance, 280)}。照片质感：{_fragment(profile.visual.default_style, 220)}。",
@@ -185,11 +213,12 @@ class CodexRuntimeContext:
             f"当前允许的照片亲密档位：{','.join(photo_bands)}；不得选择列表外档位。关系只控制亲密上限，不决定发型和场景。",
             mode_rule,
             *identity_lines,
+            *look_lines,
             f"最近成功照片配方（只有受控枚举，没有聊天或提示词）：{recent_payload}。新拍让 scene/activity/framing/hairstyle/expression 至少两项不同，且未被点名时 hairstyle 或 expression 至少改变一项。妆容不机械逐张换：同一组或接着拍时自然延续；明显换了时间、场景或准备出门时可换，但连续多次不应永远相同。",
-            "imagegen 的普通画面描述末尾必须附一个控制信封。信封不会发给图片模型；PreToolUse 会校验并移除。photo_moment 只能使用下面枚举；用户明确点名发型、表情或妆容时一律把对应轴写 custom，具体要求只留在普通画面描述里。用户要求保持不变，Persona 对某轴有固定边界，或枚举无法准确表达时也写 custom，不要把原文塞进字段。",
+            "imagegen 的普通画面描述末尾必须附一个 V3 控制信封。信封不会发给图片模型；PreToolUse 会校验并移除。photo_moment 只能使用下面枚举；用户明确点名发型、表情或妆容时一律把对应轴写 custom，具体要求只留在普通画面描述里。用户要求保持不变，Persona 对某轴有固定边界，或枚举无法准确表达时也写 custom，不要把原文塞进字段。",
             schema,
             "严格使用这个 JSON 结构，不增删字段："
-            f"\n[[COMPANION_KIT_PHOTO_V2]]\n{{\"schema_version\":{PHOTO_MOMENT_SCHEMA_VERSION},\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"makeup\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}}}}\n[[/COMPANION_KIT_PHOTO_V2]]",
+            f"\n[[COMPANION_KIT_PHOTO_V3]]\n{{\"schema_version\":{PHOTO_ENVELOPE_SCHEMA_VERSION},\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"makeup\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}},{look_payload}}}\n[[/COMPANION_KIT_PHOTO_V3]]",
             "图片真实返回后再说话，并遵守 PostToolUse 给出的同一 PhotoMoment 文案约束；没有真实结果不说已经拍好。",
         )
         rendered = "\n".join(lines)
@@ -201,6 +230,20 @@ class CodexRuntimeContext:
                 "聊天和具体任务照常继续。",
             )
         )
+
+    def render_daily_look(self, daily_look: DailyLook | None) -> str:
+        """只在已绑定陪伴任务明确谈到今日穿搭时补充轻量连续性。"""
+
+        if daily_look is None:
+            return (
+                "每日穿搭当前没有启用。自然顺着用户聊当下想穿的感觉即可，"
+                "不要假装已经保存了今日主题，也不要调用图片工具，除非用户同时明确要照片。"
+            )
+        rendered = daily_look.render_private_context()
+        return (
+            rendered
+            + " 用户只是问穿搭时直接自然回答，不调用图片工具；如果同时明确要人物照片，按照片专用私有上下文执行。"
+        )[:900]
 
 
 def _fragment(value: str, limit: int) -> str:

@@ -1,6 +1,6 @@
 # Companion Kit
 
-> 在 Codex 里放进一个能聊天、能做事，也能用固定人物形象发照片的 Persona。当前版本 `0.8.0-dev.1`，仍是 Developer Preview。
+> 在 Codex 里放进一个能聊天、能做事，也能用固定人物形象发照片的 Persona。当前版本 `0.9.0-dev.1`，仍是 Developer Preview。
 
 它是一个 Codex Plugin，不是独立 App，也不是每次聊天都要先喊名字的 Skill。人物面板直接显示在 Codex 里，Persona、关系数据和参考照片只保存在本机。
 
@@ -58,7 +58,8 @@ Plugin 安装后，让我在 Codex 输入 `/hooks`，找到 Companion Kit，并�
 - 用一句话创建或调整 Persona，也可以从四个模板起步；
 - 上传 PNG、JPG 或 WebP，预览后固定或更换主脸；
 - 查看 Persona、固定形象、Hooks 和陪伴任务是否真的就绪；
-- 一键把当前任务设为陪伴任务、拍照或退出。
+- 看 TA 今天穿什么，也可以换一套、微调、记住偏好或暂停；
+- 一键把当前任务设为陪伴任务、拍照或退出；
 - 任务连接过多或索引异常时，可明确确认后只清空任务连接；Persona、关系和参考照片仍会保留。
 
 之后直接聊天即可，不用输入 `$virtual-companion`：
@@ -66,6 +67,8 @@ Plugin 安装后，让我在 Codex 输入 `/hooks`，找到 Companion Kit，并�
 > 把这个任务设为陪伴任务。
 
 > 今天有点烦，陪我聊会儿。
+
+> 你今天穿什么？
 
 > 顺便帮我看看这个项目的测试为什么失败。
 
@@ -88,6 +91,8 @@ Persona 只影响闲聊和不关键的表达。代码正确性、事实、安全
 
 照片回合会从 Identity Pack 选择一至两张参考图。主脸必带；侧脸和体型是可选增强。最近四次照片只保存场景、发型、表情、妆容等结构化配方，用来避免连续几张照片只换背景。
 
+每日 OOTD 不在凌晨偷偷跑任务。每天第一次聊到穿搭或拍人物照片时，系统才按 Persona 的风格安排一套；同一天保留主题，发型、表情和妆容照常变化。用户明确说“今天换一套”时才替换，明确说“只这张这样穿”时不会改掉当天主题。只有照片真的生成成功，面板才显示“已出片”。
+
 界面仍可能显示 Codex 自己的工具调用或工作耗时，这是宿主 UI，Plugin 不能假装它不存在。日常陪伴回复不会再播报“Skill 已启动”、内部提示词、重连次数或生图状态。
 
 更多细节见[产品逻辑](docs/PRODUCT_LOGIC.md)。
@@ -102,7 +107,7 @@ python3 skills/virtual-companion/scripts/companionctl.py upgrade check
 python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
 ```
 
-升级会先校验 Persona、关系数据和 Identity Pack，创建恢复点，再切换 Plugin。完成后重新审核当前版本 Hooks，完全退出并重开 Codex。旧任务不会半路换一套新 Hook。
+升级会先校验 Persona、关系数据、Identity Pack 和每日穿搭记录，创建恢复点，再切换 Plugin。完成后重新审核当前版本 Hooks，完全退出并重开 Codex。旧任务不会半路换一套新 Hook。
 
 完整回滚与恢复说明见[安全升级](docs/UPGRADE.md)。
 

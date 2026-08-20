@@ -5,12 +5,15 @@ import json
 import re
 from typing import Iterable
 
+from .daily_look import DailyLookDirective, DailyLookError
+
 
 class PhotoMomentError(ValueError):
     """照片配方或工具控制信封不满足最小协议。"""
 
 
 PHOTO_MOMENT_SCHEMA_VERSION = 2
+PHOTO_ENVELOPE_SCHEMA_VERSION = 3
 _ENVELOPES = {
     1: (
         "[[COMPANION_KIT_PHOTO_V1]]",
@@ -19,6 +22,10 @@ _ENVELOPES = {
     2: (
         "[[COMPANION_KIT_PHOTO_V2]]",
         "[[/COMPANION_KIT_PHOTO_V2]]",
+    ),
+    3: (
+        "[[COMPANION_KIT_PHOTO_V3]]",
+        "[[/COMPANION_KIT_PHOTO_V3]]",
     ),
 }
 _ENVELOPE_START, _ENVELOPE_END = _ENVELOPES[PHOTO_MOMENT_SCHEMA_VERSION]
@@ -36,6 +43,7 @@ _MOMENT_FIELDS_V1 = {
 }
 _MOMENT_FIELDS = _MOMENT_FIELDS_V1 | {"makeup"}
 _ENVELOPE_FIELDS = {"schema_version", "turn_token", "photo_moment"}
+_ENVELOPE_FIELDS_V3 = _ENVELOPE_FIELDS | {"daily_look"}
 _TOKEN_RE = re.compile(r"^ckp_[0-9a-f]{24}$")
 
 _VALUES = {
@@ -436,20 +444,34 @@ def normalize_photo_moment(
     return result
 
 
-def encode_photo_envelope(turn_token: str, photo_moment: PhotoMoment) -> str:
+def encode_photo_envelope(
+    turn_token: str,
+    photo_moment: PhotoMoment,
+    *,
+    daily_look: DailyLookDirective | None = None,
+) -> str:
     if not _TOKEN_RE.fullmatch(str(turn_token or "")):
         raise PhotoMomentError("照片回合标记无效")
+    version = (
+        PHOTO_ENVELOPE_SCHEMA_VERSION
+        if daily_look is not None
+        else PHOTO_MOMENT_SCHEMA_VERSION
+    )
+    payload_object: dict[str, object] = {
+        "schema_version": version,
+        "turn_token": turn_token,
+        "photo_moment": photo_moment.to_dict(),
+    }
+    if daily_look is not None:
+        payload_object["daily_look"] = daily_look.to_dict()
     payload = json.dumps(
-        {
-            "schema_version": PHOTO_MOMENT_SCHEMA_VERSION,
-            "turn_token": turn_token,
-            "photo_moment": photo_moment.to_dict(),
-        },
+        payload_object,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
-    return f"\n\n{_ENVELOPE_START}\n{payload}\n{_ENVELOPE_END}"
+    start_marker, end_marker = _ENVELOPES[version]
+    return f"\n\n{start_marker}\n{payload}\n{end_marker}"
 
 
 def parse_photo_envelope(
@@ -457,6 +479,18 @@ def parse_photo_envelope(
     *,
     expected_token: str,
 ) -> tuple[str, PhotoMoment]:
+    cleaned, photo_moment, _ = parse_photo_envelope_details(
+        prompt,
+        expected_token=expected_token,
+    )
+    return cleaned, photo_moment
+
+
+def parse_photo_envelope_details(
+    prompt: object,
+    *,
+    expected_token: str,
+) -> tuple[str, PhotoMoment, DailyLookDirective | None]:
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000:
         raise PhotoMomentError("图片提示无效")
     if not _TOKEN_RE.fullmatch(str(expected_token or "")):
@@ -484,9 +518,12 @@ def parse_photo_envelope(
         payload = json.loads(raw_json)
     except json.JSONDecodeError as exc:
         raise PhotoMomentError("Companion 照片控制信封无效") from exc
+    expected_envelope_fields = (
+        _ENVELOPE_FIELDS_V3 if version == PHOTO_ENVELOPE_SCHEMA_VERSION else _ENVELOPE_FIELDS
+    )
     if (
         not isinstance(payload, dict)
-        or set(payload) != _ENVELOPE_FIELDS
+        or set(payload) != expected_envelope_fields
         or payload.get("schema_version") != version
         or payload.get("turn_token") != expected_token
     ):
@@ -498,4 +535,10 @@ def parse_photo_envelope(
     cleaned = prompt[:start].rstrip()
     if not cleaned:
         raise PhotoMomentError("图片提示缺少真实画面描述")
-    return cleaned, PhotoMoment.from_dict(moment_raw)
+    daily_look: DailyLookDirective | None = None
+    if version == PHOTO_ENVELOPE_SCHEMA_VERSION:
+        try:
+            daily_look = DailyLookDirective.from_dict(payload.get("daily_look"))
+        except DailyLookError as exc:
+            raise PhotoMomentError("Companion 每日穿搭控制无效") from exc
+    return cleaned, PhotoMoment.from_dict(moment_raw), daily_look

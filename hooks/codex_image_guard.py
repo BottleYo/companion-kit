@@ -17,6 +17,7 @@ _IMAGE_TOOL_NAMES = {
 _ENVELOPE_MARKERS = (
     "[[COMPANION_KIT_PHOTO_V1]]",
     "[[COMPANION_KIT_PHOTO_V2]]",
+    "[[COMPANION_KIT_PHOTO_V3]]",
 )
 
 
@@ -73,11 +74,16 @@ def main() -> int:
         )
         from companion_kit.codex_runtime import load_codex_runtime_context
         from companion_kit.codex_turn import make_turn_token
+        from companion_kit.daily_look import DailyLookDirective
+        from companion_kit.daily_look_store import (
+            DailyLookStore,
+            DailyLookStoreError,
+        )
         from companion_kit.hook_health import inspect_hook_bundle
         from companion_kit.photo_moment import (
             PhotoMomentError,
             normalize_photo_moment,
-            parse_photo_envelope,
+            parse_photo_envelope_details,
         )
         from companion_kit.photo_moment_store import (
             PhotoMomentStore,
@@ -115,15 +121,32 @@ def main() -> int:
         if token != ticket.turn_token:
             return _deny("人物照片控制信封与当前回合不匹配；请重新建立本轮照片计划。")
         try:
-            cleaned_prompt, candidate_moment = parse_photo_envelope(
-                prompt,
-                expected_token=ticket.turn_token,
+            cleaned_prompt, candidate_moment, daily_directive = (
+                parse_photo_envelope_details(
+                    prompt,
+                    expected_token=ticket.turn_token,
+                )
             )
         except PhotoMomentError:
             return _deny("人物照片控制信封与当前回合不匹配；请重新建立本轮照片计划。")
         mode = ticket.mode
         if candidate_moment.mode != mode:
             return _deny("人物照片模式与当前回合不匹配；请重新建立本轮照片计划。")
+        if daily_directive is None:
+            # V1/V2 信封仍可安全使用，但不会凭旧协议改写每日穿搭。
+            daily_directive = DailyLookDirective.from_dict(
+                {
+                    "action": (
+                        "preserve_target" if mode == "edit_previous" else "one_shot"
+                    ),
+                    "look_id": None,
+                    "proposal": None,
+                }
+            )
+        if mode == "edit_previous" and daily_directive.action != "preserve_target":
+            return _deny("编辑上一张只能保留目标照片中的穿搭，不能同时改写今日穿搭。")
+        if mode == "new" and daily_directive.action == "preserve_target":
+            return _deny("新照片不能使用编辑目标的穿搭控制；请重新建立照片计划。")
 
         runtime = load_codex_runtime_context()
         if runtime is None:
@@ -222,11 +245,7 @@ def main() -> int:
                 else [str(target)]
             )
 
-        updated["prompt"] = (
-            cleaned_prompt.rstrip()
-            + "\n\n"
-            + normalized.render_image_constraints()
-        )
+        daily_look = None
         try:
             normalized = store.stage_varied(
                 profile_id=runtime.profile.id,
@@ -235,14 +254,30 @@ def main() -> int:
                 photo_moment=normalized,
                 allowed_intimacy_bands=runtime.relationship.photo_bands,
             )
-            updated["prompt"] = (
-                cleaned_prompt.rstrip()
-                + "\n\n"
-                + normalized.render_image_constraints()
-            )
+            if daily_directive.action in {"use_daily", "replace_daily"}:
+                try:
+                    daily_look = DailyLookStore(lock_timeout=0.25).stage_for_photo(
+                        profile_id=runtime.profile.id,
+                        session_id=session_id,
+                        tool_use_id=tool_use_id,
+                        directive=daily_directive,
+                    )
+                except DailyLookStoreError:
+                    store.discard(session_id=session_id, tool_use_id=tool_use_id)
+                    return _deny("今天的穿搭状态已经变化；请重新发起这次拍照。")
         except PhotoMomentStoreError:
             # 配方历史不是身份安全边界；当前图片仍使用权威参考，文案约束直接随工具反馈传递。
+            if daily_directive.action in {"use_daily", "replace_daily"}:
+                return _deny("今天的照片配方暂时无法安全保存；请重新发起这次拍照。")
             caption_context = normalized.render_caption_context()
+        constraints = [normalized.render_image_constraints()]
+        if daily_look is not None:
+            constraints.append(daily_look.render_image_constraints())
+        elif daily_directive.action == "one_shot":
+            constraints.append(
+                "本轮服饰只按当前画面要求一次性生成，不把它当作人物身份或跨照片固定造型。"
+            )
+        updated["prompt"] = cleaned_prompt.rstrip() + "\n\n" + "\n".join(constraints)
         _decision(
             "allow",
             updated_input=updated,

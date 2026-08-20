@@ -19,6 +19,7 @@ TOOL_NAME = "open_companion_home"
 SAVE_PERSONA_TOOL = "save_companion_persona"
 SET_PRIMARY_FACE_TOOL = "set_companion_primary_face"
 CLEAR_SCOPES_TOOL = "clear_companion_task_bindings"
+UPDATE_DAILY_LOOK_TOOL = "update_companion_daily_look"
 PRIVATE_UI_STATE_KEY = "companion-kit/ui-state"
 _PROFILE_VERSION_RE = re.compile(r"^[a-f0-9]{64}$")
 LATEST_PROTOCOL_VERSION = "2025-11-25"
@@ -264,6 +265,54 @@ def _clear_scopes_descriptor() -> dict[str, object]:
     }
 
 
+def _update_daily_look_descriptor() -> dict[str, object]:
+    return {
+        "name": UPDATE_DAILY_LOOK_TOOL,
+        "title": "调整 Companion Kit 今日穿搭",
+        "description": (
+            "只供人物面板在用户明确点击后安排、调整或暂停今日穿搭。"
+            "普通代码、聊天和图片任务不要调用。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "plan",
+                        "reroll",
+                        "customize",
+                        "remember",
+                        "pause",
+                        "resume",
+                    ],
+                },
+                "expected_look_id": {
+                    "type": ["string", "null"],
+                    "pattern": "^look_[0-9a-f]{24}$",
+                },
+                "note": {"type": ["string", "null"], "maxLength": 160},
+                "confirm": {"type": "boolean", "const": True},
+            },
+            "required": ["action", "expected_look_id", "note", "confirm"],
+            "additionalProperties": False,
+        },
+        "outputSchema": STATUS_OUTPUT_SCHEMA,
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "openWorldHint": False,
+            "idempotentHint": False,
+        },
+        "_meta": {
+            "ui": {"visibility": ["app"]},
+            "openai/visibility": "private",
+            "openai/toolInvocation/invoking": "正在整理今天的穿搭",
+            "openai/toolInvocation/invoked": "今日穿搭已更新",
+        },
+    }
+
+
 def _status() -> dict[str, object]:
     return CodexCompanionStatusService(
         plugin_root=PLUGIN_ROOT,
@@ -274,6 +323,7 @@ def _status() -> dict[str, object]:
 def _private_ui_state() -> dict[str, object]:
     """只供本地组件回填表单；不放进模型可见的 structuredContent。"""
 
+    from companion_kit.daily_look_store import DailyLookStore, DailyLookStoreError
     from companion_kit.initializer import default_profile_path
     from companion_kit.profile_store import ProfileStore, ProfileStoreError
 
@@ -283,9 +333,17 @@ def _private_ui_state() -> dict[str, object]:
             profile_path=default_profile_path("codex"),
         ).read()
     except ProfileStoreError:
-        return {"persona_form": None, "profile_version": None}
+        return {
+            "persona_form": None,
+            "profile_version": None,
+            "daily_look": {"enabled": True, "current": None, "available": True},
+        }
     if snapshot is None:
-        return {"persona_form": None, "profile_version": None}
+        return {
+            "persona_form": None,
+            "profile_version": None,
+            "daily_look": {"enabled": True, "current": None, "available": True},
+        }
     profile = snapshot.profile
     template_id = (
         profile.template_id
@@ -293,6 +351,20 @@ def _private_ui_state() -> dict[str, object]:
         in {"warm_healer", "calm_partner", "sunny_friend", "playful_pal"}
         else None
     )
+    daily_state: dict[str, object]
+    try:
+        daily_snapshot = DailyLookStore().inspect(profile_id=profile.id)
+        daily_state = {
+            "enabled": daily_snapshot.enabled,
+            "current": (
+                daily_snapshot.current.to_public_dict()
+                if daily_snapshot.current is not None
+                else None
+            ),
+            "available": True,
+        }
+    except DailyLookStoreError:
+        daily_state = {"enabled": True, "current": None, "available": False}
     return {
         "profile_version": snapshot.version,
         "persona_form": {
@@ -301,7 +373,8 @@ def _private_ui_state() -> dict[str, object]:
             "display_name": profile.display_name,
             "starting_mode": profile.relationship.starting_mode,
             "romance_enabled": profile.relationship.romance_enabled,
-        }
+        },
+        "daily_look": daily_state,
     }
 
 
@@ -467,6 +540,90 @@ def _clear_scopes(arguments: dict[str, object]) -> dict[str, object]:
     return _status()
 
 
+def _update_daily_look(arguments: dict[str, object]) -> dict[str, object]:
+    if set(arguments) != {"action", "expected_look_id", "note", "confirm"}:
+        raise ValueError("今日穿搭操作参数无效")
+    if arguments.get("confirm") is not True:
+        raise ValueError("调整今日穿搭需要在人物面板明确确认")
+    action = arguments.get("action")
+    expected = arguments.get("expected_look_id")
+    note = arguments.get("note")
+    if action not in {"plan", "reroll", "customize", "remember", "pause", "resume"}:
+        raise ValueError("今日穿搭操作无效")
+    if expected is not None and (
+        not isinstance(expected, str) or not re.fullmatch(r"look_[0-9a-f]{24}", expected)
+    ):
+        raise ValueError("今日穿搭版本无效，请刷新人物面板")
+    if note is not None and (not isinstance(note, str) or len(note) > 160):
+        raise ValueError("今日穿搭微调无效")
+
+    from companion_kit.daily_look_store import DailyLookStore, DailyLookStoreError
+    from companion_kit.initializer import default_profile_path
+    from companion_kit.profile_store import ProfileStore, ProfileStoreError
+
+    try:
+        profile_snapshot = ProfileStore(
+            skill_root=SKILL_ROOT,
+            profile_path=default_profile_path("codex"),
+        ).read()
+        if profile_snapshot is None:
+            raise ValueError("请先创建 Persona，再安排今天的穿搭")
+        profile = profile_snapshot.profile
+        style_anchor = (
+            f"{profile.visual.default_style}；{profile.visual.default_wardrobe}"
+        )
+        store = DailyLookStore()
+        if action == "plan":
+            if expected is not None or note is not None:
+                raise ValueError("安排今日穿搭不需要旧版本或微调文字")
+            planned = store.ensure_today(
+                profile_id=profile.id,
+                style_anchor=style_anchor,
+            )
+            if planned is None:
+                raise ValueError("每日穿搭当前已暂停，请先恢复")
+        elif action == "pause":
+            if expected is not None or note is not None:
+                raise ValueError("暂停今日穿搭不需要其他参数")
+            store.set_enabled(profile_id=profile.id, enabled=False)
+        elif action == "resume":
+            if expected is not None or note is not None:
+                raise ValueError("恢复今日穿搭不需要其他参数")
+            store.set_enabled(profile_id=profile.id, enabled=True)
+            store.ensure_today(profile_id=profile.id, style_anchor=style_anchor)
+        else:
+            if not isinstance(expected, str):
+                raise ValueError("今天的穿搭已经变化，请刷新后再试")
+            if action == "reroll":
+                if note is not None:
+                    raise ValueError("换一套不需要微调文字")
+                store.reroll_today(
+                    profile_id=profile.id,
+                    style_anchor=style_anchor,
+                    expected_look_id=expected,
+                )
+            elif action == "customize":
+                if not isinstance(note, str) or not note.strip():
+                    raise ValueError("请写一句想怎么调整今天的穿搭")
+                store.customize_today(
+                    profile_id=profile.id,
+                    note=note,
+                    expected_look_id=expected,
+                )
+            else:
+                if note is not None:
+                    raise ValueError("记住这种感觉不需要微调文字")
+                store.remember_current(
+                    profile_id=profile.id,
+                    expected_look_id=expected,
+                )
+    except DailyLookStoreError as exc:
+        raise ValueError(str(exc)) from exc
+    except ProfileStoreError as exc:
+        raise ValueError("Persona 暂时无法读取，今日穿搭没有变化") from exc
+    return _status()
+
+
 def _result_for(method: str, params: object) -> dict[str, object]:
     arguments = params if isinstance(params, dict) else {}
     if method == "initialize":
@@ -490,6 +647,7 @@ def _result_for(method: str, params: object) -> dict[str, object]:
                 _save_persona_descriptor(),
                 _set_primary_face_descriptor(),
                 _clear_scopes_descriptor(),
+                _update_daily_look_descriptor(),
             ]
         }
     if method == "resources/list":
@@ -554,6 +712,13 @@ def _result_for(method: str, params: object) -> dict[str, object]:
                         "text": "陪伴任务连接已清空；Persona、关系和参考照片仍在。",
                     }
                 ],
+                "structuredContent": status,
+                "_meta": _result_meta(),
+            }
+        if name == UPDATE_DAILY_LOOK_TOOL:
+            status = _update_daily_look(tool_arguments)
+            return {
+                "content": [{"type": "text", "text": "今日穿搭已更新。"}],
                 "structuredContent": status,
                 "_meta": _result_meta(),
             }

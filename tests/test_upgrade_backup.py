@@ -11,6 +11,8 @@ from companion_kit.backup import (
     BackupManager,
     CompanionDataLayout,
 )
+from companion_kit.daily_look import DailyLookDirective
+from companion_kit.daily_look_store import DailyLookStore
 from companion_kit.image_assets import ImageAssetStore
 from companion_kit.initializer import initialize_profile
 from companion_kit.profile_store import ProfileStore
@@ -97,7 +99,44 @@ def _create_durable_data(root: Path) -> tuple[str, str]:
 
 
 class BackupManagerTests(unittest.TestCase):
-    def test_photo_moment_history_is_durable_but_pending_bridge_is_not(self) -> None:
+    def test_corrupted_daily_look_is_reported_before_upgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "companion-home"
+            profile_path = root / "profiles" / "default.toml"
+            initialize_profile(
+                skill_root=SKILL_ROOT,
+                template_id="warm_healer",
+                display_name="小禾",
+                output=profile_path,
+            )
+            profile = ProfileStore(
+                skill_root=SKILL_ROOT,
+                profile_path=profile_path,
+            ).read()
+            assert profile is not None
+            looks = DailyLookStore(
+                root / "private" / "daily-looks",
+                clock=lambda: NOW,
+            )
+            looks.ensure_today(
+                profile_id=profile.profile.id,
+                style_anchor=profile.profile.visual.default_style,
+            )
+            state_path = next(looks.root.glob("*.json"))
+            raw = json.loads(state_path.read_text(encoding="utf-8"))
+            raw["schema_version"] = 999
+            state_path.write_text(json.dumps(raw), encoding="utf-8")
+
+            inventory = BackupManager(
+                CompanionDataLayout.for_codex(data_root=root),
+                product_version="0.9.0-dev.1",
+                clock=lambda: NOW,
+            ).inspect()
+
+            self.assertFalse(inventory.healthy)
+            self.assertIn("每日穿搭记录", " ".join(inventory.blockers))
+
+    def test_photo_and_daily_look_history_are_durable_but_pending_bridges_are_not(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve() / "companion-home"
             store = PhotoMomentStore(root / "private" / "photo-moments")
@@ -121,6 +160,27 @@ class BackupManagerTests(unittest.TestCase):
                 tool_use_id="completed-tool",
                 photo_moment=photo_moment,
             )
+            look_store = DailyLookStore(
+                root / "private" / "daily-looks",
+                clock=lambda: NOW,
+            )
+            look = look_store.ensure_today(
+                profile_id="companion",
+                style_anchor="干净利落",
+            )
+            assert look is not None
+            look_store.stage_for_photo(
+                profile_id="companion",
+                session_id="pending-look-session",
+                tool_use_id="pending-look-tool",
+                directive=DailyLookDirective.from_dict(
+                    {
+                        "action": "use_daily",
+                        "look_id": look.look_id,
+                        "proposal": None,
+                    }
+                ),
+            )
             store.commit(
                 profile_id="companion",
                 session_id="completed-session",
@@ -134,7 +194,7 @@ class BackupManagerTests(unittest.TestCase):
             )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.8.0-dev.1",
+                product_version="0.9.0-dev.1",
                 clock=lambda: NOW,
             )
 
@@ -145,6 +205,9 @@ class BackupManagerTests(unittest.TestCase):
 
             self.assertTrue(
                 any(path.startswith("private/photo-moments/") for path in paths)
+            )
+            self.assertTrue(
+                any(path.startswith("private/daily-looks/") for path in paths)
             )
             self.assertFalse(any("/runtime/" in path for path in paths))
 
@@ -163,7 +226,7 @@ class BackupManagerTests(unittest.TestCase):
             transient.write_text("temporary", encoding="utf-8")
             manager = BackupManager(
                 CompanionDataLayout.for_profile(profile),
-                product_version="0.8.0-dev.1",
+                product_version="0.9.0-dev.1",
                 clock=lambda: NOW,
             )
 
@@ -265,7 +328,7 @@ class BackupManagerTests(unittest.TestCase):
             )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.8.0-dev.1",
+                product_version="0.9.0-dev.1",
                 clock=lambda: NOW,
             )
 
@@ -305,7 +368,7 @@ class BackupManagerTests(unittest.TestCase):
             pack.members[0].path.write_bytes(b"damaged")
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.8.0-dev.1",
+                product_version="0.9.0-dev.1",
                 clock=lambda: NOW,
             )
 
