@@ -16,6 +16,7 @@ from companion_kit.hook_health import (
 )
 from companion_kit.initializer import initialize_profile
 from companion_kit.photo_moment_store import PhotoMomentStore
+from companion_kit.pending_photo_context import PendingPhotoContextStore
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -167,6 +168,11 @@ class CodexScopeHookTests(unittest.TestCase):
                 clear=False,
             ):
                 CompanionScopeStore().bind("companion-task")
+                PendingPhotoContextStore().remember(
+                    profile_id="companion",
+                    session_id="companion-task",
+                    source="photo_setup",
+                )
 
             unbound = _run_hook(
                 PROMPT_HOOK,
@@ -198,6 +204,12 @@ class CodexScopeHookTests(unittest.TestCase):
                 clear=False,
             ):
                 self.assertFalse(CompanionScopeStore().is_bound("companion-task"))
+                self.assertIsNone(
+                    PendingPhotoContextStore().peek(
+                        profile_id="companion",
+                        session_id="companion-task",
+                    )
+                )
 
     def test_unbound_photo_remains_one_shot_and_does_not_bind(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

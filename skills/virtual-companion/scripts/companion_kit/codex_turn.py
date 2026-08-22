@@ -24,6 +24,28 @@ class CodexTurnIntent:
     identity_role: str | None = None
 
 
+@dataclass(frozen=True)
+class PendingPhotoContext:
+    """由 Plugin 确定性流程建立的短时续拍上下文，不包含聊天正文。"""
+
+    source: str
+    context_ref: str = ""
+
+    def __post_init__(self) -> None:
+        if self.source not in {"daily_look", "photo_setup", "photo_flow"}:
+            raise ValueError("续拍上下文来源无效")
+        if (
+            not isinstance(self.context_ref, str)
+            or len(self.context_ref) > 128
+            or any(ord(character) < 32 for character in self.context_ref)
+        ):
+            raise ValueError("续拍上下文引用无效")
+        if self.source == "daily_look" and not re.fullmatch(
+            r"look_[0-9a-f]{24}", self.context_ref
+        ):
+            raise ValueError("每日穿搭续拍引用无效")
+
+
 _NON_EXECUTION_RE = re.compile(
     r"(?:不要|不用|无需|别|禁止|停止|取消)(?:真的)?(?:生图|生成图片|出图|拍照)|"
     r"(?:只|先)(?:分析|讨论|解释|检查|评审|设计|写|修复)(?:一下)?(?:照片|生图|图片|imagegen|hook)|"
@@ -62,6 +84,11 @@ _GENERIC_PHOTO_SUBJECT_RE = re.compile(
     r"(?:产品|商品|物品|电商|广告|海报|网站|网页|落地页|README|"
     r"流程图|架构图|示意图|图标|logo|包装|白板|咖啡杯|杯子|"
     r"菜品|食物|风景|夜景|建筑|汽车|房子|猫|狗|宠物)",
+    re.IGNORECASE,
+)
+_UNRELATED_WORK_RE = re.compile(
+    r"(?:分析|解释|检查|评审|修复|调试|实现|开发|设计|测试|重构|写)"
+    r".{0,24}(?:代码|项目|功能|接口|模块|bug|报错)",
     re.IGNORECASE,
 )
 _PERSONA_PHOTO_SUBJECT_RE = re.compile(
@@ -137,7 +164,7 @@ _DIRECT_PHOTO_RES = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"(?:再拍|重拍|重新拍|多拍|继续拍|换个场景再来|换个发型重新拍|"
+        r"(?:再拍|重拍|重新拍|多拍|换个场景再来|换个发型重新拍|"
         r"take (?:another|a) (?:photo|selfie)|send (?:me )?(?:a|another) (?:photo|selfie)|"
         r"show me (?:a|another|your) (?:photo|selfie|picture))",
         re.IGNORECASE,
@@ -155,6 +182,16 @@ _DIRECT_PHOTO_RES = (
         re.IGNORECASE,
     ),
     re.compile(r"^(?:照片|拍照|人物照片|photo)\s*[:：]", re.IGNORECASE),
+)
+_BOUND_NATURAL_SHORT_PHOTO_RE = re.compile(
+    r"^(?:拍一张我看看|拍张我看看|拍给我看看|拍一张看看|给我拍一张看看)"
+    r"[吧呀啊哦～~！!。.]?$",
+    re.IGNORECASE,
+)
+_PENDING_PHOTO_FOLLOWUP_RE = re.compile(
+    r"^(?:拍吧|那就拍吧|就这样拍|按这套拍|继续拍|可以[，,]?\s*拍吧)"
+    r"[呀啊哦～~！!。.]?$",
+    re.IGNORECASE,
 )
 _PREVIOUS_IMAGE_KINDS = {"missing", "generic", "companion"}
 _SCOPE_BIND_RE = re.compile(
@@ -191,7 +228,46 @@ def classify_scope_command(text: str) -> CodexScopeCommand:
     return CodexScopeCommand.PASS_THROUGH
 
 
-def likely_codex_photo_turn(text: str) -> bool:
+def likely_pending_photo_followup(text: str) -> bool:
+    normalized = str(text or "").strip()
+    return bool(
+        normalized
+        and len(normalized) <= 64
+        and _PENDING_PHOTO_FOLLOWUP_RE.fullmatch(normalized)
+    )
+
+
+def likely_bound_short_photo_request(text: str) -> bool:
+    normalized = str(text or "").strip()
+    return bool(
+        normalized
+        and len(normalized) <= 64
+        and _BOUND_NATURAL_SHORT_PHOTO_RE.fullmatch(normalized)
+    )
+
+
+def breaks_pending_photo_context(text: str) -> bool:
+    """只识别明确转向非人物拍照工作的消息，供 Hook 清除短时状态。"""
+
+    normalized = str(text or "").strip()
+    if not normalized or len(normalized) > 20_000:
+        return False
+    return bool(
+        _NON_EXECUTION_RE.search(normalized)
+        or _UNRELATED_WORK_RE.search(normalized)
+        or (
+            _GENERIC_PHOTO_SUBJECT_RE.search(normalized)
+            and not _PERSONA_PHOTO_SUBJECT_RE.search(normalized)
+        )
+    )
+
+
+def likely_codex_photo_turn(
+    text: str,
+    *,
+    companion_bound: bool = False,
+    pending_photo_context: PendingPhotoContext | None = None,
+) -> bool:
     """Hook 的无磁盘快速门；宁可少命中，也不劫持普通任务。"""
 
     normalized = str(text or "").strip()
@@ -199,6 +275,10 @@ def likely_codex_photo_turn(text: str) -> bool:
         return False
     if _NON_EXECUTION_RE.search(normalized):
         return False
+    if likely_bound_short_photo_request(normalized):
+        return companion_bound
+    if likely_pending_photo_followup(normalized):
+        return companion_bound and pending_photo_context is not None
     if _PROFILE_ENHANCEMENT_RE.search(normalized) or _BODY_ENHANCEMENT_RE.search(
         normalized
     ):
@@ -217,11 +297,23 @@ def classify_codex_turn(
     text: str,
     *,
     previous_image_kind: str = "missing",
+    companion_bound: bool = False,
+    pending_photo_context: PendingPhotoContext | None = None,
 ) -> CodexTurnIntent:
     if previous_image_kind not in _PREVIOUS_IMAGE_KINDS:
         raise ValueError("上一张图片类型无效")
+    if not isinstance(companion_bound, bool):
+        raise ValueError("陪伴任务绑定状态无效")
+    if pending_photo_context is not None and not isinstance(
+        pending_photo_context, PendingPhotoContext
+    ):
+        raise ValueError("续拍上下文无效")
     normalized = str(text or "").strip()
-    if not likely_codex_photo_turn(normalized):
+    if not likely_codex_photo_turn(
+        normalized,
+        companion_bound=companion_bound,
+        pending_photo_context=pending_photo_context,
+    ):
         return CodexTurnIntent(CodexTurnKind.PASS_THROUGH)
     if _PROFILE_ENHANCEMENT_RE.search(normalized):
         return CodexTurnIntent(CodexTurnKind.PHOTO_NEW, "profile_face")

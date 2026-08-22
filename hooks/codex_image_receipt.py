@@ -142,6 +142,19 @@ def main() -> int:
                     tool_use_id=tool_use_id,
                 )
                 photo_moment = result.photo_moment or pending
+                try:
+                    if CompanionScopeStore(lock_timeout=0.25).is_bound(session_id):
+                        from companion_kit.pending_photo_context import (
+                            PendingPhotoContextStore,
+                        )
+
+                        PendingPhotoContextStore(lock_timeout=0.25).remember(
+                            profile_id=profile.id,
+                            session_id=session_id,
+                            source="photo_flow",
+                        )
+                except Exception:
+                    pass
                 caption_parts = [photo_moment.render_caption_context()]
                 try:
                     look_result = DailyLookStore(
