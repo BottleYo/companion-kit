@@ -20,6 +20,7 @@ from companion_kit.image_assets import ImageAssetStore
 from companion_kit.initializer import initialize_profile
 from companion_kit.photo_moment import PhotoMoment, encode_photo_envelope
 from companion_kit.photo_moment_store import PhotoMomentStore
+from companion_kit.pending_photo_context import PendingPhotoContextStore
 from companion_kit.profile_store import ProfileStore
 from tests.png_fixture import tiny_png
 
@@ -66,6 +67,23 @@ def _run_hook(
         env=environment,
         timeout=timeout,
     )
+
+
+def _persona_identity_snapshot(home: Path) -> dict[str, bytes]:
+    selected = (
+        home / "profiles",
+        home / "private" / "images",
+        home / "private" / "relationships.sqlite3",
+    )
+    result: dict[str, bytes] = {}
+    for candidate in selected:
+        if candidate.is_file():
+            result[str(candidate.relative_to(home))] = candidate.read_bytes()
+        elif candidate.is_dir():
+            for path in sorted(candidate.rglob("*")):
+                if path.is_file() and not path.name.endswith(".lock"):
+                    result[str(path.relative_to(home))] = path.read_bytes()
+    return result
 
 
 def _lock_identity(home: Path):
@@ -301,6 +319,201 @@ class CodexPhotoHookTests(unittest.TestCase):
                     PhotoMomentStore().turn_ticket(
                         session_id="ootd-session",
                         turn_id="ootd-turn",
+                    )
+                )
+                self.assertIsNotNone(
+                    PendingPhotoContextStore().peek(
+                        profile_id="companion",
+                        session_id="ootd-session",
+                    )
+                )
+
+    def test_bound_ootd_short_followup_uses_daily_look_and_primary_face(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+            primary = _lock_identity(home)
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                CompanionScopeStore().bind("ootd-followup-session")
+
+            ootd = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "ootd-followup-session",
+                    "turn_id": "ootd-question-turn",
+                    "prompt": "今日的 OOTD 是什么",
+                },
+                environment,
+            )
+            look_context = json.loads(ootd.stdout)["hookSpecificOutput"][
+                "additionalContext"
+            ]
+            durable_before = _persona_identity_snapshot(home)
+            followup = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "ootd-followup-session",
+                    "turn_id": "ootd-photo-turn",
+                    "prompt": "拍吧",
+                },
+                environment,
+            )
+
+            self.assertEqual(followup.returncode, 0)
+            self.assertEqual(followup.stderr, "")
+            photo_context = json.loads(followup.stdout)["hookSpecificOutput"][
+                "additionalContext"
+            ]
+            self.assertIn("COMPANION_KIT_PHOTO_V4", photo_context)
+            self.assertIn(str(primary.path), photo_context)
+            self.assertIn("referenced_image_paths", photo_context)
+            self.assertIn("只生成一张", photo_context)
+            self.assertIn("核心单品", photo_context)
+            self.assertIn("核心单品", look_context)
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                ticket = PhotoMomentStore().turn_ticket(
+                    session_id="ootd-followup-session",
+                    turn_id="ootd-photo-turn",
+                )
+                self.assertIsNotNone(ticket)
+                self.assertIsNone(
+                    PendingPhotoContextStore().peek(
+                        profile_id="companion",
+                        session_id="ootd-followup-session",
+                    )
+                )
+                look = DailyLookStore().current(profile_id="companion")
+            assert ticket is not None
+            assert look is not None
+            guarded = _run_hook(
+                PRE_TOOL_HOOK,
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "ootd-followup-session",
+                    "turn_id": "ootd-photo-turn",
+                    "tool_use_id": "ootd-photo-call",
+                    "tool_name": "image_gen__imagegen",
+                    "tool_input": {
+                        "prompt": "今日穿搭的自然自拍"
+                        + encode_photo_envelope(
+                            ticket.turn_token,
+                            _moment(),
+                            daily_look=DailyLookDirective(
+                                action="use_daily",
+                                look_id=look.look_id,
+                                proposal=None,
+                            ),
+                        ),
+                        "referenced_image_paths": [str(primary.path)],
+                    },
+                },
+                environment,
+            )
+            guarded_output = json.loads(guarded.stdout)["hookSpecificOutput"]
+            self.assertEqual(guarded_output["permissionDecision"], "allow")
+            self.assertEqual(
+                guarded_output["updatedInput"]["referenced_image_paths"],
+                [str(primary.path)],
+            )
+            self.assertEqual(_persona_identity_snapshot(home), durable_before)
+
+    def test_bound_explicit_short_photo_request_does_not_need_pending_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+            primary = _lock_identity(home)
+            with patch.dict(os.environ, {"COMPANION_HOME": str(home)}, clear=True):
+                CompanionScopeStore().bind("short-photo-session")
+
+            completed = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "short-photo-session",
+                    "turn_id": "short-photo-turn",
+                    "prompt": "拍一张我看看",
+                },
+                environment,
+            )
+
+            context = json.loads(completed.stdout)["hookSpecificOutput"][
+                "additionalContext"
+            ]
+            self.assertIn("COMPANION_KIT_PHOTO_V4", context)
+            self.assertIn(str(primary.path), context)
+
+    def test_bare_short_photo_followup_without_pending_is_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+            _lock_identity(home)
+            with patch.dict(os.environ, {"COMPANION_HOME": str(home)}, clear=True):
+                CompanionScopeStore().bind("no-pending-session")
+
+            bound = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "no-pending-session",
+                    "turn_id": "bound-bare-turn",
+                    "prompt": "拍吧",
+                },
+                environment,
+            )
+            unbound = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "unbound-session",
+                    "turn_id": "unbound-bare-turn",
+                    "prompt": "拍吧",
+                },
+                environment,
+            )
+
+            self.assertEqual(bound.stdout, "")
+            self.assertEqual(unbound.stdout, "")
+
+    def test_obvious_non_photo_work_clears_pending_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            environment, home, _ = self._environment(root)
+            _lock_identity(home)
+            with patch.dict(os.environ, {"COMPANION_HOME": str(home)}, clear=True):
+                CompanionScopeStore().bind("pending-clear-session")
+                PendingPhotoContextStore().remember(
+                    profile_id="companion",
+                    session_id="pending-clear-session",
+                    source="photo_setup",
+                )
+
+            completed = _run_hook(
+                PROMPT_HOOK,
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "pending-clear-session",
+                    "turn_id": "coding-turn",
+                    "prompt": "帮我修复这段代码的报错",
+                },
+                environment,
+            )
+
+            self.assertEqual(completed.stdout, "")
+            with patch.dict(os.environ, {"COMPANION_HOME": str(home)}, clear=True):
+                self.assertIsNone(
+                    PendingPhotoContextStore().peek(
+                        profile_id="companion",
+                        session_id="pending-clear-session",
                     )
                 )
 
@@ -989,6 +1202,12 @@ class CodexPhotoHookTests(unittest.TestCase):
             session_id = "caption-session"
             turn_id = "caption-turn"
             tool_use_id = "caption-image-call"
+            with patch.dict(
+                os.environ,
+                {"COMPANION_HOME": str(home)},
+                clear=True,
+            ):
+                CompanionScopeStore().bind(session_id)
             pre = _run_hook(
                 PRE_TOOL_HOOK,
                 {
@@ -1049,7 +1268,13 @@ class CodexPhotoHookTests(unittest.TestCase):
                     profile_id="companion",
                     identity_version=1,
                 )
+                continuation = PendingPhotoContextStore().peek(
+                    profile_id="companion",
+                    session_id=session_id,
+                )
             self.assertEqual(recent, (_moment(),))
+            self.assertIsNotNone(continuation)
+            self.assertEqual(continuation.source, "photo_flow")
 
             duplicate = _run_hook(
                 POST_TOOL_HOOK,

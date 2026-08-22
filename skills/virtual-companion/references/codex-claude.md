@@ -23,7 +23,7 @@ python3 skills/virtual-companion/scripts/companionctl.py upgrade apply --confirm
 
 升级器先保存并校验 Codex Persona、关系数据库、Identity Pack 和最近照片配方，再另存旧 Plugin。切换后的即时健康检查失败时只恢复旧程序，不用恢复点覆盖当前用户数据。该流程只适用于本地 Codex Marketplace；Claude 和其他宿主不会跟着更新。更新后需要在 `/hooks` 重新审核当前版本的四个 Hook，再新建任务完成加载验证。
 
-`0.9.0-dev.2` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。Daily Look 和面部动态配方都只在本地生成结构化控制，不额外调用图片模型。
+`0.9.0-dev.3` 在 Codex 中只使用宿主内置图片生成能力。内置能力使用 `gpt-image-2`，图片计入用户现有 Codex 方案的使用量或额度。Daily Look、短句续拍状态和面部动态配方都只在本地生成结构化控制，不额外调用图片模型。
 
 - 不读取、不检查也不索要 `OPENAI_API_KEY`。
 - 不让用户选择 Provider、快速模式、严格模式或 API 计费方式。

@@ -4,6 +4,7 @@ import unittest
 
 from companion_kit.codex_turn import (
     CodexTurnKind,
+    PendingPhotoContext,
     classify_codex_turn,
     make_turn_token,
 )
@@ -43,6 +44,52 @@ class CodexTurnClassifierTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(
                     classify_codex_turn(text).kind,
+                    CodexTurnKind.PHOTO_NEW,
+                )
+
+    def test_bound_natural_short_photo_requests_are_new_photos(self) -> None:
+        for text in (
+            "拍一张我看看",
+            "拍张我看看",
+            "拍给我看看",
+            "拍一张看看",
+            "给我拍一张看看",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    classify_codex_turn(text).kind,
+                    CodexTurnKind.PASS_THROUGH,
+                )
+                self.assertEqual(
+                    classify_codex_turn(text, companion_bound=True).kind,
+                    CodexTurnKind.PHOTO_NEW,
+                )
+
+    def test_very_short_photo_followups_require_bound_pending_context(self) -> None:
+        pending = PendingPhotoContext(source="daily_look", context_ref="look_" + "a" * 24)
+        for text in (
+            "拍吧",
+            "那就拍吧",
+            "就这样拍",
+            "按这套拍",
+            "继续拍",
+            "可以，拍吧",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    classify_codex_turn(text).kind,
+                    CodexTurnKind.PASS_THROUGH,
+                )
+                self.assertEqual(
+                    classify_codex_turn(text, companion_bound=True).kind,
+                    CodexTurnKind.PASS_THROUGH,
+                )
+                self.assertEqual(
+                    classify_codex_turn(
+                        text,
+                        companion_bound=True,
+                        pending_photo_context=pending,
+                    ).kind,
                     CodexTurnKind.PHOTO_NEW,
                 )
 
@@ -155,6 +202,7 @@ class CodexTurnClassifierTests(unittest.TestCase):
         for text in (
             "拍一张你拿着咖啡杯的照片给我",
             "给我一张你和宠物狗一起的照片",
+            "拍一张你穿着今天这套 OOTD 的自拍给我",
         ):
             with self.subTest(text=text):
                 self.assertEqual(

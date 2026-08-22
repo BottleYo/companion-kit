@@ -18,6 +18,7 @@ from companion_kit.initializer import initialize_profile
 from companion_kit.profile_store import ProfileStore
 from companion_kit.photo_moment import PhotoMoment
 from companion_kit.photo_moment_store import PhotoMomentStore
+from companion_kit.pending_photo_context import PendingPhotoContextStore
 from companion_kit.relationship import RelationshipEvent, RelationshipEventType
 from companion_kit.state_store import RelationshipStore
 from tests.png_fixture import tiny_png
@@ -129,7 +130,7 @@ class BackupManagerTests(unittest.TestCase):
 
             inventory = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.2",
+                product_version="0.9.0-dev.3",
                 clock=lambda: NOW,
             ).inspect()
 
@@ -192,9 +193,18 @@ class BackupManagerTests(unittest.TestCase):
                 tool_use_id="pending-tool",
                 photo_moment=photo_moment,
             )
+            PendingPhotoContextStore(
+                root / "private" / "pending-photo-contexts",
+                clock=lambda: NOW,
+            ).remember(
+                profile_id="companion",
+                session_id="short-followup-session",
+                source="daily_look",
+                context_ref=look.look_id,
+            )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.2",
+                product_version="0.9.0-dev.3",
                 clock=lambda: NOW,
             )
 
@@ -210,6 +220,12 @@ class BackupManagerTests(unittest.TestCase):
                 any(path.startswith("private/daily-looks/") for path in paths)
             )
             self.assertFalse(any("/runtime/" in path for path in paths))
+            self.assertFalse(
+                any(
+                    path.startswith("private/pending-photo-contexts/")
+                    for path in paths
+                )
+            )
 
     def test_flat_custom_profile_is_included_without_scanning_sibling_private_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -226,7 +242,7 @@ class BackupManagerTests(unittest.TestCase):
             transient.write_text("temporary", encoding="utf-8")
             manager = BackupManager(
                 CompanionDataLayout.for_profile(profile),
-                product_version="0.9.0-dev.2",
+                product_version="0.9.0-dev.3",
                 clock=lambda: NOW,
             )
 
@@ -328,7 +344,7 @@ class BackupManagerTests(unittest.TestCase):
             )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.2",
+                product_version="0.9.0-dev.3",
                 clock=lambda: NOW,
             )
 
@@ -368,7 +384,7 @@ class BackupManagerTests(unittest.TestCase):
             pack.members[0].path.write_bytes(b"damaged")
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.2",
+                product_version="0.9.0-dev.3",
                 clock=lambda: NOW,
             )
 
