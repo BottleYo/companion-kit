@@ -20,6 +20,7 @@ SAVE_PERSONA_TOOL = "save_companion_persona"
 SET_PRIMARY_FACE_TOOL = "set_companion_primary_face"
 CLEAR_SCOPES_TOOL = "clear_companion_task_bindings"
 UPDATE_DAILY_LOOK_TOOL = "update_companion_daily_look"
+UPDATE_STYLE_TOOL = "update_companion_style"
 PRIVATE_UI_STATE_KEY = "companion-kit/ui-state"
 _PROFILE_VERSION_RE = re.compile(r"^[a-f0-9]{64}$")
 LATEST_PROTOCOL_VERSION = "2025-11-25"
@@ -313,6 +314,66 @@ def _update_daily_look_descriptor() -> dict[str, object]:
     }
 
 
+def _update_style_descriptor() -> dict[str, object]:
+    return {
+        "name": UPDATE_STYLE_TOOL,
+        "title": "调整 Companion Kit 造型偏好",
+        "description": (
+            "只供人物面板在用户明确点击后保存当前 Persona 的私有造型方向。"
+            "普通代码、聊天和图片任务不要调用。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "direction": {"type": "string", "maxLength": 240},
+                "boldness": {
+                    "type": "string",
+                    "enum": ["restrained", "balanced", "expressive"],
+                },
+                "signature_elements": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 60},
+                    "maxItems": 8,
+                    "uniqueItems": True,
+                },
+                "avoid_elements": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 60},
+                    "maxItems": 8,
+                    "uniqueItems": True,
+                },
+                "expected_version": {
+                    "type": ["string", "null"],
+                    "pattern": "^[a-f0-9]{64}$",
+                },
+                "confirm": {"type": "boolean", "const": True},
+            },
+            "required": [
+                "direction",
+                "boldness",
+                "signature_elements",
+                "avoid_elements",
+                "expected_version",
+                "confirm",
+            ],
+            "additionalProperties": False,
+        },
+        "outputSchema": STATUS_OUTPUT_SCHEMA,
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "openWorldHint": False,
+            "idempotentHint": False,
+        },
+        "_meta": {
+            "ui": {"visibility": ["app"]},
+            "openai/visibility": "private",
+            "openai/toolInvocation/invoking": "正在保存造型偏好",
+            "openai/toolInvocation/invoked": "造型偏好已保存",
+        },
+    }
+
+
 def _status() -> dict[str, object]:
     return CodexCompanionStatusService(
         plugin_root=PLUGIN_ROOT,
@@ -326,6 +387,7 @@ def _private_ui_state() -> dict[str, object]:
     from companion_kit.daily_look_store import DailyLookStore, DailyLookStoreError
     from companion_kit.initializer import default_profile_path
     from companion_kit.profile_store import ProfileStore, ProfileStoreError
+    from companion_kit.styling import StylingError, StylingPreferenceStore, resolve_style_profile
 
     try:
         snapshot = ProfileStore(
@@ -337,12 +399,14 @@ def _private_ui_state() -> dict[str, object]:
             "persona_form": None,
             "profile_version": None,
             "daily_look": {"enabled": True, "current": None, "available": True},
+            "styling_form": None,
         }
     if snapshot is None:
         return {
             "persona_form": None,
             "profile_version": None,
             "daily_look": {"enabled": True, "current": None, "available": True},
+            "styling_form": None,
         }
     profile = snapshot.profile
     template_id = (
@@ -365,6 +429,22 @@ def _private_ui_state() -> dict[str, object]:
         }
     except DailyLookStoreError:
         daily_state = {"enabled": True, "current": None, "available": False}
+    try:
+        styling_snapshot = StylingPreferenceStore().inspect(profile_id=profile.id)
+        resolved_style = resolve_style_profile(
+            profile,
+            styling_snapshot.preferences if styling_snapshot is not None else None,
+        )
+        styling_form: dict[str, object] | None = {
+            "direction": resolved_style.direction,
+            "boldness": resolved_style.boldness,
+            "signature_elements": list(resolved_style.signature_elements),
+            "avoid_elements": list(resolved_style.avoid_elements),
+            "user_configured": resolved_style.user_configured,
+            "version": styling_snapshot.version if styling_snapshot is not None else None,
+        }
+    except StylingError:
+        styling_form = None
     return {
         "profile_version": snapshot.version,
         "persona_form": {
@@ -375,6 +455,7 @@ def _private_ui_state() -> dict[str, object]:
             "romance_enabled": profile.relationship.romance_enabled,
         },
         "daily_look": daily_state,
+        "styling_form": styling_form,
     }
 
 
@@ -560,6 +641,7 @@ def _update_daily_look(arguments: dict[str, object]) -> dict[str, object]:
     from companion_kit.daily_look_store import DailyLookStore, DailyLookStoreError
     from companion_kit.initializer import default_profile_path
     from companion_kit.profile_store import ProfileStore, ProfileStoreError
+    from companion_kit.styling import StylingError, StylingPreferenceStore, resolve_style_profile
 
     try:
         profile_snapshot = ProfileStore(
@@ -572,6 +654,14 @@ def _update_daily_look(arguments: dict[str, object]) -> dict[str, object]:
         style_anchor = (
             f"{profile.visual.default_style}；{profile.visual.default_wardrobe}"
         )
+        try:
+            styling_snapshot = StylingPreferenceStore().inspect(profile_id=profile.id)
+        except StylingError:
+            styling_snapshot = None
+        style_profile = resolve_style_profile(
+            profile,
+            styling_snapshot.preferences if styling_snapshot is not None else None,
+        )
         store = DailyLookStore()
         if action == "plan":
             if expected is not None or note is not None:
@@ -579,6 +669,7 @@ def _update_daily_look(arguments: dict[str, object]) -> dict[str, object]:
             planned = store.ensure_today(
                 profile_id=profile.id,
                 style_anchor=style_anchor,
+                style_profile=style_profile,
             )
             if planned is None:
                 raise ValueError("每日穿搭当前已暂停，请先恢复")
@@ -590,7 +681,11 @@ def _update_daily_look(arguments: dict[str, object]) -> dict[str, object]:
             if expected is not None or note is not None:
                 raise ValueError("恢复今日穿搭不需要其他参数")
             store.set_enabled(profile_id=profile.id, enabled=True)
-            store.ensure_today(profile_id=profile.id, style_anchor=style_anchor)
+            store.ensure_today(
+                profile_id=profile.id,
+                style_anchor=style_anchor,
+                style_profile=style_profile,
+            )
         else:
             if not isinstance(expected, str):
                 raise ValueError("今天的穿搭已经变化，请刷新后再试")
@@ -601,6 +696,7 @@ def _update_daily_look(arguments: dict[str, object]) -> dict[str, object]:
                     profile_id=profile.id,
                     style_anchor=style_anchor,
                     expected_look_id=expected,
+                    style_profile=style_profile,
                 )
             elif action == "customize":
                 if not isinstance(note, str) or not note.strip():
@@ -621,6 +717,50 @@ def _update_daily_look(arguments: dict[str, object]) -> dict[str, object]:
         raise ValueError(str(exc)) from exc
     except ProfileStoreError as exc:
         raise ValueError("Persona 暂时无法读取，今日穿搭没有变化") from exc
+    return _status()
+
+
+def _update_style(arguments: dict[str, object]) -> dict[str, object]:
+    expected_keys = {
+        "direction",
+        "boldness",
+        "signature_elements",
+        "avoid_elements",
+        "expected_version",
+        "confirm",
+    }
+    if set(arguments) != expected_keys or arguments.get("confirm") is not True:
+        raise ValueError("保存造型偏好需要在人物面板明确确认")
+
+    from companion_kit.initializer import default_profile_path
+    from companion_kit.profile_store import ProfileStore, ProfileStoreError
+    from companion_kit.styling import (
+        StylingConflict,
+        StylingError,
+        StylingPreferenceStore,
+    )
+
+    try:
+        profile_snapshot = ProfileStore(
+            skill_root=SKILL_ROOT,
+            profile_path=default_profile_path("codex"),
+        ).read()
+        if profile_snapshot is None:
+            raise ValueError("请先创建 Persona，再调整造型偏好")
+        StylingPreferenceStore().save(
+            profile_id=profile_snapshot.profile.id,
+            direction=arguments.get("direction"),
+            boldness=arguments.get("boldness"),
+            signature_elements=arguments.get("signature_elements", ()),
+            avoid_elements=arguments.get("avoid_elements", ()),
+            expected_version=arguments.get("expected_version"),
+        )
+    except StylingConflict as exc:
+        raise ValueError("造型偏好已在其他位置更新，请刷新人物面板后重试") from exc
+    except StylingError as exc:
+        raise ValueError(str(exc)) from exc
+    except ProfileStoreError as exc:
+        raise ValueError("Persona 暂时无法读取，造型偏好没有变化") from exc
     return _status()
 
 
@@ -648,6 +788,7 @@ def _result_for(method: str, params: object) -> dict[str, object]:
                 _set_primary_face_descriptor(),
                 _clear_scopes_descriptor(),
                 _update_daily_look_descriptor(),
+                _update_style_descriptor(),
             ]
         }
     if method == "resources/list":
@@ -719,6 +860,13 @@ def _result_for(method: str, params: object) -> dict[str, object]:
             status = _update_daily_look(tool_arguments)
             return {
                 "content": [{"type": "text", "text": "今日穿搭已更新。"}],
+                "structuredContent": status,
+                "_meta": _result_meta(),
+            }
+        if name == UPDATE_STYLE_TOOL:
+            status = _update_style(tool_arguments)
+            return {
+                "content": [{"type": "text", "text": "造型偏好已保存。"}],
                 "structuredContent": status,
                 "_meta": _result_meta(),
             }

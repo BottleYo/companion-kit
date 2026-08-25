@@ -135,6 +135,22 @@ def main() -> int:
         from companion_kit.daily_look_store import DailyLookStore, DailyLookStoreError
         from companion_kit.photo_moment_store import PhotoMomentStore
         from companion_kit.pending_photo_context import PendingPhotoContextStore
+        from companion_kit.styling import (
+            StylingPreferenceStore,
+            resolve_style_profile,
+        )
+
+        def resolved_style(current_runtime: object):
+            try:
+                snapshot = StylingPreferenceStore(lock_timeout=0.25).inspect(
+                    profile_id=current_runtime.profile.id
+                )
+            except Exception:
+                snapshot = None
+            return resolve_style_profile(
+                current_runtime.profile,
+                snapshot.preferences if snapshot is not None else None,
+            )
 
         session_id = str(payload.get("session_id") or "")
         turn_id = str(payload.get("turn_id") or "")
@@ -256,6 +272,7 @@ def main() -> int:
                     daily_look = DailyLookStore(lock_timeout=0.25).ensure_today(
                         profile_id=runtime.profile.id,
                         style_anchor=_style_anchor(runtime),
+                        style_profile=resolved_style(runtime),
                     )
                 except DailyLookStoreError:
                     daily_look = None
@@ -369,6 +386,7 @@ def main() -> int:
                 daily_look = DailyLookStore(lock_timeout=0.25).ensure_today(
                     profile_id=runtime.profile.id,
                     style_anchor=_style_anchor(runtime),
+                    style_profile=resolved_style(runtime),
                 )
             except DailyLookStoreError:
                 daily_look = None

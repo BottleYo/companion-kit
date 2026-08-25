@@ -24,6 +24,7 @@ from .daily_look import (
 )
 from .file_lock import InterprocessLockError, exclusive_file_lock
 from .initializer import InitializationError, default_profile_path, safe_profile_path
+from .styling import ResolvedStyleProfile
 
 
 class DailyLookStoreError(ValueError):
@@ -330,6 +331,7 @@ class DailyLookStore:
         *,
         profile_id: str,
         style_anchor: str,
+        style_profile: ResolvedStyleProfile | None = None,
     ) -> DailyLook | None:
         try:
             _private_directory(self.root)
@@ -348,6 +350,7 @@ class DailyLookStore:
                     recent=state.recent,
                     preferred_theme_ids=state.preferred_theme_ids,
                     created_at=self._created_at(),
+                    style_profile=style_profile,
                 )
                 self._write_state(profile_id, self._replace_day(state, look))
                 return look
@@ -398,6 +401,7 @@ class DailyLookStore:
         profile_id: str,
         style_anchor: str,
         expected_look_id: str,
+        style_profile: ResolvedStyleProfile | None = None,
     ) -> DailyLook:
         try:
             _private_directory(self.root)
@@ -414,6 +418,7 @@ class DailyLookStore:
                     recent=state.recent,
                     preferred_theme_ids=state.preferred_theme_ids,
                     created_at=self._created_at(),
+                    style_profile=style_profile,
                 )
                 self._write_state(profile_id, self._replace_day(state, look))
                 return look

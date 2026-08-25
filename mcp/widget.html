@@ -64,7 +64,7 @@
           <button id="rememberLook">记住这种感觉</button>
           <button id="toggleLook">暂停每日穿搭</button>
         </div>
-        <div id="lookHint" class="foot">只固定当天的穿搭线索；脸、发型、表情和妆容各管各的。</div>
+        <div id="lookHint" class="foot">今天会一起安排服装、配饰、发型、妆容和神态；固定主脸仍只负责“是同一个人”。</div>
       </section>
       <details id="setup">
         <summary>创建或调整 Persona</summary>
@@ -79,6 +79,17 @@
         </div>
         <div class="actions" style="margin-top:12px"><button id="savePersona" class="primary">保存 Persona</button></div>
         <div id="saveHint" class="foot"></div>
+      </details>
+      <details id="styleSetup">
+        <summary>调整造型偏好</summary>
+        <label>整体方向<textarea id="styleDirection" maxlength="240" placeholder="比如：冷静利落，有一点复古感，日常也要有造型"></textarea></label>
+        <div class="row">
+          <label>表现程度<select id="styleBoldness"><option value="restrained">低调</option><option value="balanced">平衡</option><option value="expressive">抢眼</option></select></label>
+          <label>常用标志<input id="styleSignatures" maxlength="480" placeholder="比如：复古镜框、细金属耳饰" /></label>
+        </div>
+        <label>不想出现<input id="styleAvoids" maxlength="480" placeholder="比如：荧光色、大 Logo；用逗号分开" /></label>
+        <div class="actions" style="margin-top:12px"><button id="saveStyle" class="primary">保存造型偏好</button></div>
+        <div id="styleHint" class="foot">这是当前 Persona 的私有偏好，不会变成所有人的模板；以后随时可以改。</div>
       </details>
       <details id="identitySetup">
         <summary>固定或更换人物形象</summary>
@@ -103,6 +114,7 @@
       let toolOutput = null;
       let privateUiState = null;
       let personaHydrated = false;
+      let styleHydrated = false;
       let identityPngBase64 = null;
       const pending = new Map();
       const byId = (id) => document.getElementById(id);
@@ -117,11 +129,15 @@
       function label(value, yes, no) { return value ? yes : no; }
       function applyToolResult(result) {
         const previousVersion = privateUiState?.profile_version ?? null;
+        const previousStyleVersion = privateUiState?.styling_form?.version ?? null;
         const nextPrivateState = result?._meta?.["companion-kit/ui-state"] || privateUiState;
         toolOutput = result?.structuredContent || toolOutput;
         privateUiState = nextPrivateState;
         if (!personaHydrated || previousVersion !== (nextPrivateState?.profile_version ?? null)) {
           personaHydrated = false;
+        }
+        if (!styleHydrated || previousStyleVersion !== (nextPrivateState?.styling_form?.version ?? null)) {
+          styleHydrated = false;
         }
         render();
       }
@@ -149,7 +165,7 @@
           byId("lookState").textContent = "已暂停";
         } else if (look) {
           byId("lookTitle").textContent = look.title || "今天的穿搭";
-          byId("lookCopy").textContent = `${look.hero_piece}；${look.palette}；${look.accent}`;
+          byId("lookCopy").textContent = `${look.outfit || look.hero_piece}；${look.hairstyle || "自然发型"}；${look.makeup || "自然妆面"}。小心思：${look.tip || look.accent}`;
           byId("lookState").textContent = look.status === "confirmed" ? "已出片" : "待第一张照片";
         } else {
           byId("lookTitle").textContent = "今天穿什么";
@@ -172,6 +188,15 @@
           byId("romance").value = form.romance_enabled ? "true" : "false";
           personaHydrated = true;
         }
+        const style = privateUiState?.styling_form;
+        if (style && !styleHydrated) {
+          byId("styleDirection").value = style.direction || "";
+          byId("styleBoldness").value = style.boldness || "balanced";
+          byId("styleSignatures").value = Array.isArray(style.signature_elements) ? style.signature_elements.join("、") : "";
+          byId("styleAvoids").value = Array.isArray(style.avoid_elements) ? style.avoid_elements.join("、") : "";
+          styleHydrated = true;
+        }
+        byId("saveStyle").disabled = !style || !toolOutput.persona?.configured;
       }
       window.addEventListener("message", (event) => {
         if (event.source !== window.parent) return;
@@ -188,7 +213,7 @@
         }
       }, { passive: true });
       const ready = rpcRequest("ui/initialize", {
-        appInfo: { name: "companion-kit-widget", version: "0.9.0-dev.3" },
+        appInfo: { name: "companion-kit-widget", version: "0.9.0-dev.4" },
         appCapabilities: {},
         protocolVersion: "2026-01-26"
       }).then(() => rpcNotify("ui/notifications/initialized", {}));
@@ -268,6 +293,39 @@
       byId("customizeLook").addEventListener("click", () => updateDailyLook("customize"));
       byId("rememberLook").addEventListener("click", () => updateDailyLook("remember"));
       byId("toggleLook").addEventListener("click", () => updateDailyLook(privateUiState?.daily_look?.enabled === false ? "resume" : "pause"));
+      function splitStyleElements(value) {
+        return [...new Set(String(value || "").split(/[\n,，、;；]+/).map((item) => item.trim()).filter(Boolean))];
+      }
+      byId("saveStyle").addEventListener("click", async () => {
+        const button = byId("saveStyle");
+        const direction = byId("styleDirection").value.trim();
+        if (!direction) {
+          byId("styleHint").textContent = "先用一句话说说整体方向就行。";
+          return;
+        }
+        button.disabled = true;
+        byId("styleHint").textContent = "正在记住这个人的造型偏好…";
+        try {
+          await ready;
+          const result = await rpcRequest("tools/call", {
+            name: "update_companion_style",
+            arguments: {
+              direction,
+              boldness: byId("styleBoldness").value,
+              signature_elements: splitStyleElements(byId("styleSignatures").value),
+              avoid_elements: splitStyleElements(byId("styleAvoids").value),
+              expected_version: privateUiState?.styling_form?.version ?? null,
+              confirm: true
+            }
+          });
+          applyToolResult(result);
+          byId("styleHint").textContent = "记住了。下一套开始按这个方向变化；已经拍好的照片和关系数据不会动。";
+        } catch (_) {
+          byId("styleHint").textContent = "这次没有保存成功，原来的造型偏好没有变化。";
+        } finally {
+          render();
+        }
+      });
       byId("savePersona").addEventListener("click", async () => {
         const button = byId("savePersona");
         button.disabled = true;

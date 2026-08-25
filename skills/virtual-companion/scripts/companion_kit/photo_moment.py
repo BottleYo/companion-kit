@@ -97,6 +97,10 @@ _VALUES = {
         "thoughtful",
         "calm_serious",
         "sleepy_relaxed",
+        "amused",
+        "fond",
+        "self_assured",
+        "guarded_soft",
         "custom",
     },
     "makeup": {
@@ -124,6 +128,12 @@ _VALUES = {
         "downward_thoughtful",
         "calm_three_quarter",
         "sleepy_tilt",
+        "amused_side_eye",
+        "soft_challenge",
+        "brief_lookaway",
+        "confident_chin_lift",
+        "warm_eye_smile",
+        "mid_sentence_glance",
         "custom",
         "unspecified",
     },
@@ -140,6 +150,9 @@ _VALUES = {
         "unfinished_thought",
         "invite_choice",
         "gentle_check_in",
+        "persona_coax",
+        "confident_tease",
+        "restrained_affection",
         "custom",
     },
 }
@@ -164,6 +177,10 @@ _ROTATIONS = {
         "thoughtful",
         "calm_serious",
         "sleepy_relaxed",
+        "amused",
+        "fond",
+        "self_assured",
+        "guarded_soft",
     ),
     "makeup": (
         "bare",
@@ -188,6 +205,12 @@ _ROTATIONS = {
         "downward_thoughtful",
         "calm_three_quarter",
         "sleepy_tilt",
+        "amused_side_eye",
+        "soft_challenge",
+        "brief_lookaway",
+        "confident_chin_lift",
+        "warm_eye_smile",
+        "mid_sentence_glance",
     ),
 }
 _PORTRAIT_DYNAMICS_BY_EXPRESSION = {
@@ -217,6 +240,26 @@ _PORTRAIT_DYNAMICS_BY_EXPRESSION = {
         "sleepy_tilt",
         "downward_private_smile",
         "quiet_off_camera",
+    ),
+    "amused": (
+        "amused_side_eye",
+        "mid_sentence_glance",
+        "side_glance_half_smile",
+    ),
+    "fond": (
+        "warm_eye_smile",
+        "brief_lookaway",
+        "downward_private_smile",
+    ),
+    "self_assured": (
+        "confident_chin_lift",
+        "soft_challenge",
+        "calm_three_quarter",
+    ),
+    "guarded_soft": (
+        "brief_lookaway",
+        "quiet_off_camera",
+        "three_quarter_soft",
     ),
 }
 _INTIMACY_ORDER = (
@@ -375,6 +418,7 @@ class PhotoMoment:
             f"这次的共同照片时刻是：{scene}，{activity}，{expression}；面部动态是{portrait_dynamics}；妆容方向是{makeup}；表达动作是“{caption}”；关系表达上限是“{intimacy}”。"
             "让文字回应用户刚才的语境，并与实际可见画面呼应；若某个计划细节在成图中并不清楚，就不要硬说它已经出现。"
             "人物要有一点自己的态度或小心思，并留下一个让对话容易继续的口子；避免机械地问“喜欢吗”“还想看吗”，也不要复述规格清单。"
+            "先把表达动作翻译成这个 Persona 自己会说的话，再受关系上限约束；亲近不等于换一种通用甜妹口吻，撒娇也不等于幼态化。"
         )
 
 
@@ -419,6 +463,10 @@ _EXPRESSION_LABELS = {
     "thoughtful": "像刚想到一件事，注意力短暂落在镜头之外，面部保持松弛",
     "calm_serious": "清醒坚定，情绪稳定，不笑但也不僵硬或凶狠",
     "sleepy_relaxed": "眼睑和面部肌肉自然放松，带一点刚醒或夜深的慵懒",
+    "amused": "像刚听见一句有意思的话，笑意先从眼睛出现，嘴角不完全对称",
+    "fond": "带着熟悉和在意，眼神温暖但不过度表演亲密",
+    "self_assured": "自信从容，目光和下巴角度有主见，不靠僵硬冷脸制造气场",
+    "guarded_soft": "表面仍有分寸，但眉眼和嘴角泄露一点柔软，不是标准微笑",
 }
 _PORTRAIT_DYNAMICS_LABELS = {
     "direct_soft": "头部基本平正但保留轻微自然不对称，视线柔和地落在镜头上；嘴唇自然闭合，嘴角只有很浅的弧度，眼角同步带笑",
@@ -433,6 +481,12 @@ _PORTRAIT_DYNAMICS_LABELS = {
     "downward_thoughtful": "下巴略低，眼睛看向手边或画面下方；嘴唇自然闭合或微启，眉部只有很轻的专注感",
     "calm_three_quarter": "头部以克制的四分之三角度转开，视线平稳地回到镜头附近；嘴部中性，眉形放松而清醒",
     "sleepy_tilt": "头部轻靠或微微侧倾，眼睑自然放松，视线柔软；嘴唇松弛，嘴角只有若有若无的弧度",
+    "amused_side_eye": "头部保持轻微侧转，眼睛从侧面带笑地看回来；一侧嘴角先抬起，像刚被逗到但不急着承认",
+    "soft_challenge": "下巴微抬但肩颈放松，视线稳定地迎向镜头；眉峰只有一点变化，嘴角像在等对方接招",
+    "brief_lookaway": "目光刚从镜头移开，头部只跟着转动几度；嘴唇轻抿或微启，像有句话暂时没说出口",
+    "confident_chin_lift": "下巴自然抬高约 3–6°，头部略偏而非正对；目光清楚，嘴部放松，呈现从容而不是傲慢僵硬",
+    "warm_eye_smile": "头部轻偏，视线落回镜头；眼角和脸颊先有温度，嘴角弧度很浅且左右略不对称",
+    "mid_sentence_glance": "像说话说到一半忽然看向镜头，嘴唇自然微启，眉眼仍保留上一秒的情绪和动作惯性",
 }
 _MAKEUP_LABELS = {
     "bare": "接近素颜，只保留真实肤色、眉毛和唇色",
@@ -456,12 +510,15 @@ _CAPTION_LABELS = {
     "unfinished_thought": "把话留一半，让对方自然接住",
     "invite_choice": "给对方一个有内容的二选一，不问空泛的喜欢不喜欢",
     "gentle_check_in": "借这张照片自然关心对方此刻的状态",
+    "persona_coax": "用这个 Persona 自己的方式轻轻讨一句回应；关系允许时可以撒娇，但不能幼态化",
+    "confident_tease": "带着自信留一个小挑战，让对方有内容可接，不使用油腻套话",
+    "restrained_affection": "不直说满，用一个可见细节或半句话表达在意",
 }
 _INTIMACY_LABELS = {
-    "everyday": "普通日常分享，不使用恋人式身体距离、暧昧姿态或挑逗性服饰",
+    "everyday": "普通日常分享，不使用恋人式身体距离、暧昧姿态或恋人称谓；服装仍只由 Persona、场景和用户要求决定",
     "personal": "亲近但有分寸的私人分享，可以温柔关心，但不把关系直接说成恋人",
-    "romantic": "允许恋人式暧昧和轻微撩拨，但保持非露骨、非性化",
-    "intimate_non_explicit": "允许更亲密的非露骨氛围，仍不表现露骨性行为或裸露",
+    "romantic": "允许恋人式暧昧、身体距离和轻微撩拨，但保持非露骨；服装不由亲密度单独决定",
+    "intimate_non_explicit": "允许更亲密的非露骨氛围，仍不表现露骨性行为；服装不由亲密度单独决定",
 }
 
 

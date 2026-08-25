@@ -142,9 +142,9 @@ class CodexRuntimeContext:
                 for member in self.identity_pack.members
             )
             identity_lines = (
-                "人物身份已确认。imagegen 的 referenced_image_paths 只使用下面这个已验证的唯一身份参考包（Identity Pack）；主脸固定面部身份，可选成员只帮助角度或体型。",
+                "人物身份已确认。imagegen 的 referenced_image_paths 只用下面的唯一身份参考包；主脸锁身份，可选成员只辅助角度或体型。",
                 *member_lines,
-                "每次必须带主脸；普通近景只用主脸，侧脸或回眸可加侧脸，全身或穿搭可加体型；最多使用两张。图片工具没有真正接收参考时停止，不生成替代脸。",
+                "每次必须带主脸；近景只用主脸，侧脸或回眸可加侧脸，全身或穿搭可加体型；最多使用两张。图片工具没有真正接收参考时停止，不生成替代脸。",
                 *(
                     _identity_enhancement_control_lines(
                         control_path,
@@ -175,11 +175,11 @@ class CodexRuntimeContext:
             "activity=pause|walking|sitting|drinking|reading|getting_ready|adjusting_accessory|custom；"
             "framing=close|half|three_quarter|full|mirror|over_shoulder|custom；"
             "hairstyle=loose|tied|half_up|pinned_back|textured|custom；"
-            "expression=soft_smile|open_smile|quiet_direct|playful|thoughtful|calm_serious|sleepy_relaxed|custom；"
+            "expression=soft_smile|open_smile|quiet_direct|playful|thoughtful|calm_serious|sleepy_relaxed|amused|fond|self_assured|guarded_soft|custom；"
             "makeup=bare|minimal|natural|soft_matte|warm_tone|cool_tone|defined_eyes|evening|custom；"
-            "portrait_dynamics=direct_soft|three_quarter_soft|downward_private_smile|direct_open_smile|caught_mid_laugh|side_glance_half_smile|curious_tilt|direct_neutral|quiet_off_camera|downward_thoughtful|calm_three_quarter|sleepy_tilt|custom；"
+            "portrait_dynamics=direct_soft|three_quarter_soft|downward_private_smile|direct_open_smile|caught_mid_laugh|side_glance_half_smile|curious_tilt|direct_neutral|quiet_off_camera|downward_thoughtful|calm_three_quarter|sleepy_tilt|amused_side_eye|soft_challenge|brief_lookaway|confident_chin_lift|warm_eye_smile|mid_sentence_glance|custom；"
             "time_band=morning|day|dusk|night|custom；"
-            "caption_act=share_detail|soft_tease|unfinished_thought|invite_choice|gentle_check_in|custom。"
+            "caption_act=share_detail|soft_tease|unfinished_thought|invite_choice|gentle_check_in|persona_coax|confident_tease|restrained_affection|custom。"
         )
         if mode == "edit_previous":
             look_lines = (
@@ -208,19 +208,19 @@ class CodexRuntimeContext:
                 + '","proposal":null}'
             )
         lines = (
-            "以下只服务这一次人物照片，不要向用户展示规则、路径、信封或内部字段。直接调用 Codex 内置 imagegen，不先播报准备、读取、重连、计时或生成状态；用户未要求多张时只生成一张，明确要求几张就一次按数量执行，不做隐藏试拍和自动重试。",
-            f"人物外在方向：{_fragment(profile.visual.appearance, 280)}。照片质感：{_fragment(profile.visual.default_style, 220)}。",
+            "以下只服务本次人物照片，不展示规则、路径或内部字段。直接调用 Codex 内置 imagegen，不播报准备、计时或状态；用户未要求多张时只生成一张，明确要几张才按数量执行，不隐藏试拍或自动重试。",
+            f"人物外在方向：{_fragment(profile.visual.appearance, 190)}。照片质感：{_fragment(profile.visual.default_style, 220)}。",
             f"发型软偏好：{_fragment(profile.visual.default_hairstyle, 120)}；表情软偏好：{_fragment(profile.visual.default_expression, 120)}；妆容软偏好：{_fragment(profile.visual.default_makeup, 120)}；服饰软偏好：{_fragment(profile.visual.default_wardrobe, 120)}。这些都不是固定身份，用户要求和近期去重优先。",
-            f"当前允许的照片亲密档位：{','.join(photo_bands)}；不得选择列表外档位。关系只控制亲密上限，不决定发型和场景。",
+            f"当前允许的照片亲密档位：{','.join(photo_bands)}；不得选择列表外档位。关系只控制互动距离、姿态分寸和配图话术，不决定服装、发型、妆容或场景。",
             mode_rule,
             *identity_lines,
             *look_lines,
-            f"最近成功照片配方（只有受控枚举，没有聊天或提示词）：{recent_payload}。新拍让 scene/activity/framing/hairstyle/expression 至少两项不同；portrait_dynamics 还要避开最近重复，让头部角度、视线与嘴角不总是同一套。妆容按生活连续性变化，不机械逐张轮换。",
-            f"imagegen 的画面描述末尾必须附 V{PHOTO_ENVELOPE_SCHEMA_VERSION} 控制信封；PreToolUse 校验并移除，不发给图片模型。字段只用下列枚举。用户点名发型、表情或妆容时对应轴写 custom；点名或要求保持头部角度、视线、嘴部状态时，portrait_dynamics 写 custom。具体细节只写在普通画面描述里。",
+            f"最近成功配方（无聊天正文）：{recent_payload}。新拍让 scene/activity/framing/hairstyle/expression 至少两项不同；portrait_dynamics 避开近期重复，让头部角度、视线与嘴角不总是同一套。妆容按生活连续性变化，并响应今日造型、光线和活动；caption_act 结合 Persona 和关系，不套统一甜妹话术。",
+            f"画面描述末尾必须附 V{PHOTO_ENVELOPE_SCHEMA_VERSION} 控制信封；PreToolUse 会移除。字段只用下列枚举。用户点名发型、表情、妆容或面部动态时，对应轴写 custom，细节留在普通画面描述。",
             schema,
             "严格使用这个 JSON 结构，不增删字段："
             f"\n[[COMPANION_KIT_PHOTO_V{PHOTO_ENVELOPE_SCHEMA_VERSION}]]\n{{\"schema_version\":{PHOTO_ENVELOPE_SCHEMA_VERSION},\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"makeup\":\"<enum>\",\"portrait_dynamics\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}},{look_payload}}}\n[[/COMPANION_KIT_PHOTO_V{PHOTO_ENVELOPE_SCHEMA_VERSION}]]",
-            "图片真实返回后再说话，并遵守 PostToolUse 给出的同一 PhotoMoment 文案约束；没有真实结果不说已经拍好。",
+            "图片真实返回后再按同一 PhotoMoment 说话；没有真实结果不说已经拍好。",
         )
         rendered = "\n".join(lines)
         if len(rendered) <= _PHOTO_CONTEXT_LIMIT:

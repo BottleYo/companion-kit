@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from companion_kit.daily_look import (
     companion_day_key,
 )
 from companion_kit.daily_look_store import DailyLookStore, DailyLookStoreError
+from companion_kit.styling import ResolvedStyleProfile
 
 
 class DailyLookTests(unittest.TestCase):
@@ -87,6 +89,104 @@ class DailyLookTests(unittest.TestCase):
                 current[0] += timedelta(days=1)
 
             self.assertEqual(len(signatures), len(set(signatures)))
+
+    def test_style_dna_drives_complete_daily_plan_and_respects_private_avoid_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            style = ResolvedStyleProfile(
+                direction="冷静利落，带一点复古感",
+                boldness="balanced",
+                signature_elements=("复古镜框",),
+                avoid_elements=("帽子",),
+                archetype_weights=(("sharp", 4), ("classic", 3)),
+                user_configured=True,
+            )
+            store = DailyLookStore(
+                Path(tmp) / "looks",
+                clock=lambda: datetime(2026, 8, 20, 8, 0, tzinfo=UTC),
+            )
+
+            look = store.ensure_today(
+                profile_id="private-persona",
+                style_anchor=style.anchor,
+                style_profile=style,
+            )
+
+            assert look is not None
+            self.assertTrue(look.outfit)
+            self.assertTrue(look.accessories)
+            self.assertTrue(look.hairstyle)
+            self.assertTrue(look.makeup)
+            self.assertTrue(look.performance)
+            self.assertTrue(look.tip)
+            self.assertIn("复古镜框", look.outfit)
+            self.assertNotIn("帽子", "；".join((look.outfit, look.accessories)))
+            self.assertIn("今天的小心思", look.render_private_context())
+
+    def test_legacy_daily_look_migrates_on_next_safe_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "looks"
+            store = DailyLookStore(
+                root,
+                clock=lambda: datetime(2026, 8, 20, 8, 0, tzinfo=UTC),
+            )
+            look = store.ensure_today(
+                profile_id="private-persona",
+                style_anchor="自然知性",
+            )
+            assert look is not None
+            path = next(root.glob("*.json"))
+            state = json.loads(path.read_text(encoding="utf-8"))
+            legacy = state["recent"][0]
+            for field in (
+                "outfit",
+                "accessories",
+                "hairstyle",
+                "makeup",
+                "performance",
+                "tip",
+                "persona_style",
+                "avoid_rule",
+            ):
+                legacy.pop(field)
+            legacy["schema_version"] = 1
+            path.write_text(
+                json.dumps(state, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            loaded = store.inspect(profile_id="private-persona").current
+            assert loaded is not None
+            self.assertTrue(loaded.hairstyle)
+            store.set_enabled(profile_id="private-persona", enabled=True)
+            migrated = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(migrated["recent"][0]["schema_version"], 2)
+            self.assertIn("tip", migrated["recent"][0])
+
+    def test_archetype_weight_changes_theme_family_without_fixing_a_uniform_face_or_outfit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            style = ResolvedStyleProfile(
+                direction="冷静、自信、有鲜明气场",
+                boldness="expressive",
+                signature_elements=(),
+                avoid_elements=(),
+                archetype_weights=(("sharp", 4), ("glam", 3)),
+                user_configured=True,
+            )
+            look = DailyLookStore(
+                Path(tmp) / "looks",
+                clock=lambda: datetime(2026, 8, 21, 8, 0, tzinfo=UTC),
+            ).ensure_today(
+                profile_id="private-persona",
+                style_anchor=style.anchor,
+                style_profile=style,
+            )
+
+            assert look is not None
+            self.assertIn(look.theme_id, {"quiet_glam", "soft_power", "after_dark"})
+            self.assertNotIn(
+                "脸型",
+                json.dumps(look.to_public_dict(), ensure_ascii=False),
+            )
 
     def test_successful_photo_confirms_look_without_storing_private_identifiers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

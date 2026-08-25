@@ -108,6 +108,7 @@ class CodexPluginUiTests(unittest.TestCase):
                     "set_companion_primary_face",
                     "clear_companion_task_bindings",
                     "update_companion_daily_look",
+                    "update_companion_style",
                 ],
             )
             self.assertTrue(tools[0]["annotations"]["readOnlyHint"])
@@ -136,6 +137,7 @@ class CodexPluginUiTests(unittest.TestCase):
             self.assertIn("退出陪伴任务", html)
             self.assertIn("今天穿什么", html)
             self.assertIn('name: "update_companion_daily_look"', html)
+            self.assertIn('name: "update_companion_style"', html)
             self.assertIn('writeText("/hooks")', html)
             self.assertNotIn("https://", html)
             self.assertNotIn("http://", html)
@@ -341,6 +343,77 @@ class CodexPluginUiTests(unittest.TestCase):
                 0,
             )
             self.assertEqual(profile_path.read_bytes(), before)
+
+    def test_plugin_ui_saves_style_preferences_only_in_private_meta(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "companion-home"
+            initialize_profile(
+                skill_root=SKILL_ROOT,
+                template_id="calm_partner",
+                display_name="阿序",
+                output=home / "profiles" / "default.toml",
+            )
+            result = _run_server(
+                home,
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 24,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "update_companion_style",
+                            "arguments": {
+                                "direction": "利落、成熟，偶尔有一点意外颜色",
+                                "boldness": "balanced",
+                                "signature_elements": ["复古镜框"],
+                                "avoid_elements": ["荧光色"],
+                                "expected_version": None,
+                                "confirm": True,
+                            },
+                        },
+                    }
+                ],
+            )[0]["result"]
+
+            form = result["_meta"]["companion-kit/ui-state"]["styling_form"]
+            self.assertTrue(form["user_configured"])
+            self.assertEqual(form["signature_elements"], ["复古镜框"])
+            self.assertRegex(form["version"], r"^[a-f0-9]{64}$")
+            model_visible = json.dumps(
+                {
+                    "content": result["content"],
+                    "structuredContent": result["structuredContent"],
+                },
+                ensure_ascii=False,
+            )
+            self.assertNotIn("复古镜框", model_visible)
+            self.assertNotIn("荧光色", model_visible)
+            self.assertNotIn(str(home), json.dumps(result, ensure_ascii=False))
+            self.assertEqual(
+                len(list((home / "private" / "styling").glob("*.json"))),
+                1,
+            )
+            planned = _run_server(
+                home,
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 25,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "update_companion_daily_look",
+                            "arguments": {
+                                "action": "plan",
+                                "expected_look_id": None,
+                                "note": None,
+                                "confirm": True,
+                            },
+                        },
+                    }
+                ],
+            )[0]["result"]
+            look = planned["_meta"]["companion-kit/ui-state"]["daily_look"]["current"]
+            self.assertIn("复古镜框", look["outfit"])
 
     def test_initialize_negotiates_unsupported_protocol_to_latest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

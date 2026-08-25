@@ -21,6 +21,7 @@ from companion_kit.photo_moment_store import PhotoMomentStore
 from companion_kit.pending_photo_context import PendingPhotoContextStore
 from companion_kit.relationship import RelationshipEvent, RelationshipEventType
 from companion_kit.state_store import RelationshipStore
+from companion_kit.styling import StylingPreferenceStore
 from tests.png_fixture import tiny_png
 
 
@@ -34,6 +35,7 @@ def _durable_hashes(root: Path) -> dict[str, str]:
         root / "profiles",
         root / "private" / "images",
         root / "private" / "relationships.sqlite3",
+        root / "private" / "styling",
     )
     result: dict[str, str] = {}
     for candidate in selected:
@@ -96,6 +98,14 @@ def _create_durable_data(root: Path) -> tuple[str, str]:
         reason_code="explicit_user_signal",
     )
     RelationshipStore(database).apply_event("warm-healer", event)
+    StylingPreferenceStore(root / "private" / "styling").save(
+        profile_id=snapshot.profile.id,
+        direction="温柔自然，重视材质和生活感",
+        boldness="balanced",
+        signature_elements=("小体积耳饰",),
+        avoid_elements=("荧光色",),
+        expected_version=None,
+    )
     return reference.reference_id, snapshot.profile.id
 
 
@@ -130,7 +140,7 @@ class BackupManagerTests(unittest.TestCase):
 
             inventory = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.3",
+                product_version="0.9.0-dev.4",
                 clock=lambda: NOW,
             ).inspect()
 
@@ -204,7 +214,7 @@ class BackupManagerTests(unittest.TestCase):
             )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.3",
+                product_version="0.9.0-dev.4",
                 clock=lambda: NOW,
             )
 
@@ -242,7 +252,7 @@ class BackupManagerTests(unittest.TestCase):
             transient.write_text("temporary", encoding="utf-8")
             manager = BackupManager(
                 CompanionDataLayout.for_profile(profile),
-                product_version="0.9.0-dev.3",
+                product_version="0.9.0-dev.4",
                 clock=lambda: NOW,
             )
 
@@ -280,6 +290,9 @@ class BackupManagerTests(unittest.TestCase):
             self.assertIn("private/relationships.sqlite3", relative_paths)
             self.assertTrue(
                 any(path.startswith("private/images/") for path in relative_paths)
+            )
+            self.assertTrue(
+                any(path.startswith("private/styling/") for path in relative_paths)
             )
             self.assertFalse(
                 any(path.endswith(".lock") for path in relative_paths)
@@ -344,7 +357,7 @@ class BackupManagerTests(unittest.TestCase):
             )
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.3",
+                product_version="0.9.0-dev.4",
                 clock=lambda: NOW,
             )
 
@@ -384,7 +397,7 @@ class BackupManagerTests(unittest.TestCase):
             pack.members[0].path.write_bytes(b"damaged")
             manager = BackupManager(
                 CompanionDataLayout.for_codex(data_root=root),
-                product_version="0.9.0-dev.3",
+                product_version="0.9.0-dev.4",
                 clock=lambda: NOW,
             )
 
