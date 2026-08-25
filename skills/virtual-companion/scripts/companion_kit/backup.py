@@ -18,6 +18,7 @@ from .daily_look_store import DailyLookStore, DailyLookStoreError
 from .file_lock import InterprocessLockError, exclusive_file_lock
 from .image_assets import ImageAssetError, ImageAssetStore
 from .initializer import InitializationError, default_profile_path, safe_profile_path
+from .styling import StylingError, StylingPreferenceStore
 
 
 BACKUP_SCHEMA_VERSION = 1
@@ -38,6 +39,7 @@ class CompanionDataLayout:
     images_root: Path
     photo_moments_root: Path
     daily_looks_root: Path
+    styling_root: Path
     relationship_database: Path
     backups_root: Path
     system_root: Path
@@ -68,6 +70,7 @@ class CompanionDataLayout:
             images_root=root / "private" / "images",
             photo_moments_root=root / "private" / "photo-moments",
             daily_looks_root=root / "private" / "daily-looks",
+            styling_root=root / "private" / "styling",
             relationship_database=root / "private" / "relationships.sqlite3",
             backups_root=root / "backups",
             system_root=root / "system",
@@ -92,6 +95,7 @@ class CompanionDataLayout:
             images_root=root / "private" / "images",
             photo_moments_root=root / "private" / "photo-moments",
             daily_looks_root=root / "private" / "daily-looks",
+            styling_root=root / "private" / "styling",
             relationship_database=root / "private" / "relationships.sqlite3",
             backups_root=root / "backups",
             system_root=root / "system",
@@ -218,6 +222,8 @@ def _kind_for(relative_path: str) -> str:
         return "photo_moment"
     if relative_path.startswith("private/daily-looks/"):
         return "daily_look"
+    if relative_path.startswith("private/styling/"):
+        return "persona_style"
     return "identity_asset"
 
 
@@ -440,6 +446,10 @@ class BackupManager:
             data_root=self.layout.root,
             excluded_parts=("runtime",),
         )
+        styling_files = _iter_tree_files(
+            self.layout.styling_root,
+            data_root=self.layout.root,
+        )
         return tuple(
             sorted(
                 (
@@ -447,6 +457,7 @@ class BackupManager:
                     *image_files,
                     *photo_moment_files,
                     *daily_look_files,
+                    *styling_files,
                 ),
                 key=lambda item: item.relative_path,
             )
@@ -487,6 +498,14 @@ class BackupManager:
                 )
             except DailyLookStoreError as exc:
                 blockers.append(f"每日穿搭记录无法安全读取：{exc}")
+
+        if profile_id is not None and self.layout.styling_root.exists():
+            try:
+                StylingPreferenceStore(self.layout.styling_root).inspect(
+                    profile_id=profile_id
+                )
+            except StylingError as exc:
+                blockers.append(f"Persona 造型偏好无法安全读取：{exc}")
 
         relationship_schema, database_error = _database_status(
             self.layout.relationship_database

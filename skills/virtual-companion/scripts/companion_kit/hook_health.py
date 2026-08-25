@@ -35,6 +35,9 @@ _HOOK_BUNDLE_FILES = (
     "skills/virtual-companion/scripts/companion_kit/state_store.py",
     "skills/virtual-companion/scripts/companion_kit/photo_moment.py",
     "skills/virtual-companion/scripts/companion_kit/photo_moment_store.py",
+    "skills/virtual-companion/scripts/companion_kit/daily_look.py",
+    "skills/virtual-companion/scripts/companion_kit/daily_look_store.py",
+    "skills/virtual-companion/scripts/companion_kit/styling.py",
 )
 _RECEIPT_KEYS = {
     "schema_version",

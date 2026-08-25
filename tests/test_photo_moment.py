@@ -470,6 +470,24 @@ class PhotoMomentTests(unittest.TestCase):
         self.assertIn("不对称的半笑", rendered)
         self.assertIn("不得照抄主脸参考或上一张照片的头部角度、视线和嘴角弧度", rendered)
 
+    def test_persona_expression_and_caption_act_create_attitude_without_generic_sweetness(self) -> None:
+        current = moment(
+            expression="self_assured",
+            portrait_dynamics="soft_challenge",
+            caption_act="persona_coax",
+            intimacy_band="romantic",
+        )
+
+        image_context = current.render_image_constraints()
+        caption_context = current.render_caption_context()
+
+        self.assertIn("自信从容", image_context)
+        self.assertIn("像在等对方接招", image_context)
+        self.assertIn("这个 Persona 自己的方式", caption_context)
+        self.assertIn("撒娇", caption_context)
+        self.assertIn("不等于幼态化", caption_context)
+        self.assertIn("服装不由亲密度单独决定", caption_context)
+
     def test_repeated_portrait_dynamics_rotates_to_a_compatible_variant(self) -> None:
         previous = PhotoMoment.from_dict(
             {
