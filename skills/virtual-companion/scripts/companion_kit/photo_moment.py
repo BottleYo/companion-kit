@@ -12,8 +12,8 @@ class PhotoMomentError(ValueError):
     """照片配方或工具控制信封不满足最小协议。"""
 
 
-PHOTO_MOMENT_SCHEMA_VERSION = 3
-PHOTO_ENVELOPE_SCHEMA_VERSION = 4
+PHOTO_MOMENT_SCHEMA_VERSION = 4
+PHOTO_ENVELOPE_SCHEMA_VERSION = 5
 _ENVELOPES = {
     1: (
         "[[COMPANION_KIT_PHOTO_V1]]",
@@ -31,6 +31,10 @@ _ENVELOPES = {
         "[[COMPANION_KIT_PHOTO_V4]]",
         "[[/COMPANION_KIT_PHOTO_V4]]",
     ),
+    5: (
+        "[[COMPANION_KIT_PHOTO_V5]]",
+        "[[/COMPANION_KIT_PHOTO_V5]]",
+    ),
 }
 _MOMENT_FIELDS_V1 = {
     "mode",
@@ -45,7 +49,8 @@ _MOMENT_FIELDS_V1 = {
     "identity_version",
 }
 _MOMENT_FIELDS_V2 = _MOMENT_FIELDS_V1 | {"makeup"}
-_MOMENT_FIELDS = _MOMENT_FIELDS_V2 | {"portrait_dynamics"}
+_MOMENT_FIELDS_V3 = _MOMENT_FIELDS_V2 | {"portrait_dynamics"}
+_MOMENT_FIELDS = _MOMENT_FIELDS_V3 | {"camera_relation"}
 _ENVELOPE_FIELDS = {"schema_version", "turn_token", "photo_moment"}
 _ENVELOPE_FIELDS_WITH_DAILY_LOOK = _ENVELOPE_FIELDS | {"daily_look"}
 _TOKEN_RE = re.compile(r"^ckp_[0-9a-f]{24}$")
@@ -134,6 +139,16 @@ _VALUES = {
         "confident_chin_lift",
         "warm_eye_smile",
         "mid_sentence_glance",
+        "custom",
+        "unspecified",
+    },
+    "camera_relation": {
+        "selfie",
+        "near",
+        "low",
+        "high",
+        "foreground",
+        "distant",
         "custom",
         "unspecified",
     },
@@ -284,6 +299,7 @@ class PhotoMoment:
     identity_version: int
     makeup: str = "unspecified"
     portrait_dynamics: str = "unspecified"
+    camera_relation: str = "unspecified"
 
     @classmethod
     def from_dict(cls, raw: object) -> PhotoMoment:
@@ -295,9 +311,16 @@ class PhotoMoment:
                 **raw,
                 "makeup": "unspecified",
                 "portrait_dynamics": "unspecified",
+                "camera_relation": "unspecified",
             }
         elif fields == _MOMENT_FIELDS_V2:
-            normalized = {**raw, "portrait_dynamics": "unspecified"}
+            normalized = {
+                **raw,
+                "portrait_dynamics": "unspecified",
+                "camera_relation": "unspecified",
+            }
+        elif fields == _MOMENT_FIELDS_V3:
+            normalized = {**raw, "camera_relation": "unspecified"}
         elif fields == _MOMENT_FIELDS:
             normalized = dict(raw)
         else:
@@ -329,6 +352,7 @@ class PhotoMoment:
             "expression": self.expression,
             "makeup": self.makeup,
             "portrait_dynamics": self.portrait_dynamics,
+            "camera_relation": self.camera_relation,
             "time_band": self.time_band,
             "intimacy_band": self.intimacy_band,
             "caption_act": self.caption_act,
@@ -375,6 +399,23 @@ class PhotoMoment:
             value = getattr(self, field)
             if value != "custom":
                 lines.append(f"{label}：{mapping[value]}。")
+        if self.camera_relation not in {"custom", "unspecified"}:
+            lines.append(
+                f"拍摄关系：{_CAMERA_RELATION_LABELS[self.camera_relation]}。"
+            )
+        if self.camera_relation not in {
+            "selfie",
+            "unspecified",
+        }:
+            lines.extend(
+                (
+                    "这是被拍视角：先确定相机在现实空间中的位置、高度、距离和观察方向，再决定构图；不能只写一个特殊角度后把人物摆进画面。人物的动作必须属于当前空间，相机前景只使用场景里真实存在的物体。",
+                    "让当前场景和动作产生一个可信的瞬间触发；身体重心、手部动作、视线、眉眼、脸颊和嘴部共同响应同一件刚发生的事。除非用户明确要求摆拍，不要生成等待指令的标准人像姿势。",
+                    "光源固定在场景的世界位置：更换机位不能让窗光、灯光或阴影跟着相机旋转；光线应按光源、遮挡、落点、反射和曝光形成同一条因果链。",
+                    "背景要有主次和远近：明确人物清晰区域、主要大形、次要细节与低细节留白，景深、锐度和微对比不要平均铺满整张图。",
+                    "若本次是生活抓拍而不是用户明确要求的正式写真，不要自动补商业轮廓光、英雄机位、完美居中或过度人脸锐化；保留现场光和偶然瞬间的可信质感。",
+                )
+            )
         if self.expression != "custom":
             lines.append(
                 f"本次最终神态：{_EXPRESSION_LABELS[self.expression]}。"
@@ -411,14 +452,25 @@ class PhotoMoment:
             "用户指定或自然发生的面部动态",
         )
         makeup = _MAKEUP_LABELS.get(self.makeup, "用户指定或自然延续的妆容")
+        camera_relation = _CAMERA_RELATION_LABELS.get(
+            self.camera_relation,
+            "用户指定或自然成立的拍摄关系",
+        )
         caption = _CAPTION_LABELS.get(self.caption_act, "顺着当前对话自然接下去")
         intimacy = _INTIMACY_LABELS[self.intimacy_band]
+        photographed_caption = (
+            "被拍视角时可以自然接住刚才是谁靠近、她为何回头或被看见的瞬间，但不要向用户讲机位、构图或摄影参数。"
+            if self.camera_relation
+            not in {"selfie", "unspecified"}
+            else ""
+        )
         return (
             "只有图片工具真实成功返回后，才写人物会自然说出口的一两句话；没有真实结果就不说已经拍好。不要讲生成过程、模型、Hook、Provider、耗时或参数。"
-            f"这次的共同照片时刻是：{scene}，{activity}，{expression}；面部动态是{portrait_dynamics}；妆容方向是{makeup}；表达动作是“{caption}”；关系表达上限是“{intimacy}”。"
+            f"这次的共同照片时刻是：{scene}，{activity}，{expression}；面部动态是{portrait_dynamics}；妆容方向是{makeup}；拍摄关系是{camera_relation}；表达动作是“{caption}”；关系表达上限是“{intimacy}”。"
             "让文字回应用户刚才的语境，并与实际可见画面呼应；若某个计划细节在成图中并不清楚，就不要硬说它已经出现。"
             "人物要有一点自己的态度或小心思，并留下一个让对话容易继续的口子；避免机械地问“喜欢吗”“还想看吗”，也不要复述规格清单。"
             "先把表达动作翻译成这个 Persona 自己会说的话，再受关系上限约束；亲近不等于换一种通用甜妹口吻，撒娇也不等于幼态化。"
+            + photographed_caption
         )
 
 
@@ -447,6 +499,14 @@ _FRAMING_LABELS = {
     "full": "能看见动作和穿搭关系的全身构图",
     "mirror": "自然镜面自拍，但不要遮住关键脸部特征",
     "over_shoulder": "转身或回眸的越肩角度",
+}
+_CAMERA_RELATION_LABELS = {
+    "selfie": "人物自己手持设备，手臂距离和自拍透视自然；只有用户明确要自拍或镜面自拍时使用",
+    "near": "像由熟悉的人在近处平视拍下，相机位于人物视线附近，距离与空间关系自然",
+    "low": "像由熟悉的人从坐姿、桌边或腰部附近的真实低机位拍下，低角度来自相机位置而不是暴力倾斜画面",
+    "high": "像由熟悉的人站在一级台阶或稍高位置拍下，俯视幅度克制，避免近距离广角造成大头和短腿",
+    "foreground": "相机从门框、桌边、植物或其他真实前景旁看见人物，遮挡有来源且不过度盖住脸",
+    "distant": "相机位于房间、街道或活动空间另一侧，人物自然进入这条视线，距离感、透视和环境层级一致",
 }
 _HAIRSTYLE_LABELS = {
     "loose": "按人物适合的发长自然放下，并改变分缝和脸侧轮廓",
@@ -723,7 +783,7 @@ def parse_photo_envelope_details(
         raise PhotoMomentError("Companion 照片控制信封无效") from exc
     if version == 3:
         expected_envelope_fields = (_ENVELOPE_FIELDS_WITH_DAILY_LOOK,)
-    elif version == PHOTO_ENVELOPE_SCHEMA_VERSION:
+    elif version in {4, PHOTO_ENVELOPE_SCHEMA_VERSION}:
         expected_envelope_fields = (
             _ENVELOPE_FIELDS,
             _ENVELOPE_FIELDS_WITH_DAILY_LOOK,
@@ -743,6 +803,8 @@ def parse_photo_envelope_details(
         if version == 1
         else _MOMENT_FIELDS_V2
         if version in {2, 3}
+        else _MOMENT_FIELDS_V3
+        if version == 4
         else _MOMENT_FIELDS
     )
     if not isinstance(moment_raw, dict) or set(moment_raw) != expected_fields:

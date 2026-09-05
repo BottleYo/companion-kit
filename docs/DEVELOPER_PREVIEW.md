@@ -2,7 +2,7 @@
 
 ## 当前定位
 
-`0.9.0-dev.4` 是 Codex-first Developer Preview。普通任务不受影响，用户挑一个任务作为陪伴空间；需要照片时使用同一人物身份，同一天还能自然延续一套 OOTD。
+`0.9.0-dev.5` 是 Codex-first Developer Preview。普通任务不受影响，用户挑一个任务作为陪伴空间；需要照片时使用同一人物身份，同一天还能自然延续一套 OOTD。
 
 这一版可以验证：
 

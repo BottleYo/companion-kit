@@ -32,6 +32,7 @@ def moment(**overrides: object) -> PhotoMoment:
         "expression": "soft_smile",
         "makeup": "natural",
         "portrait_dynamics": "three_quarter_soft",
+        "camera_relation": "selfie",
         "time_band": "day",
         "intimacy_band": "everyday",
         "caption_act": "share_detail",
@@ -231,14 +232,14 @@ class PhotoMomentTests(unittest.TestCase):
 
         self.assertEqual(cleaned, original)
         self.assertEqual(parsed, moment())
-        self.assertEqual(PHOTO_MOMENT_SCHEMA_VERSION, 3)
-        self.assertIn("COMPANION_KIT_PHOTO_V4", payload)
+        self.assertEqual(PHOTO_MOMENT_SCHEMA_VERSION, 4)
+        self.assertIn("COMPANION_KIT_PHOTO_V5", payload)
         self.assertIn('"makeup":"natural"', payload)
         self.assertIn('"portrait_dynamics":"three_quarter_soft"', payload)
         self.assertNotIn("COMPANION_KIT", cleaned)
         self.assertNotIn("turn_token", cleaned)
 
-    def test_v4_envelope_carries_a_bounded_daily_look_directive(self) -> None:
+    def test_v5_envelope_carries_a_bounded_daily_look_directive(self) -> None:
         token = "ckp_" + "c" * 24
         directive = DailyLookDirective.from_dict(
             {
@@ -266,8 +267,8 @@ class PhotoMomentTests(unittest.TestCase):
             expected_token=token,
         )
 
-        self.assertEqual(PHOTO_ENVELOPE_SCHEMA_VERSION, 4)
-        self.assertIn("COMPANION_KIT_PHOTO_V4", payload)
+        self.assertEqual(PHOTO_ENVELOPE_SCHEMA_VERSION, 5)
+        self.assertIn("COMPANION_KIT_PHOTO_V5", payload)
         self.assertEqual(cleaned, "自然生活感的自拍")
         self.assertEqual(parsed_moment, moment())
         self.assertEqual(parsed_look, directive)
@@ -281,6 +282,7 @@ class PhotoMomentTests(unittest.TestCase):
         legacy_moment = moment().to_dict()
         legacy_moment.pop("makeup")
         legacy_moment.pop("portrait_dynamics")
+        legacy_moment.pop("camera_relation")
         legacy_envelope = (
             "旧版照片描述\n\n[[COMPANION_KIT_PHOTO_V1]]\n"
             + json.dumps(
@@ -304,12 +306,14 @@ class PhotoMomentTests(unittest.TestCase):
         self.assertEqual(cleaned, "旧版照片描述")
         self.assertEqual(parsed.makeup, "unspecified")
         self.assertEqual(parsed.portrait_dynamics, "unspecified")
+        self.assertEqual(parsed.camera_relation, "unspecified")
         self.assertEqual(PhotoMoment.from_dict(legacy_moment).makeup, "unspecified")
 
     def test_legacy_v2_and_v3_envelopes_remain_readable_after_v4_upgrade(self) -> None:
         token = "ckp_" + "d" * 24
         legacy_moment = moment().to_dict()
         legacy_moment.pop("portrait_dynamics")
+        legacy_moment.pop("camera_relation")
         directive = DailyLookDirective.from_dict(
             {
                 "action": "one_shot",
@@ -345,7 +349,42 @@ class PhotoMomentTests(unittest.TestCase):
 
                 self.assertEqual(cleaned, f"旧版 V{version} 照片描述")
                 self.assertEqual(parsed.portrait_dynamics, "unspecified")
+                self.assertEqual(parsed.camera_relation, "unspecified")
                 self.assertEqual(parsed_look, daily_look)
+
+    def test_legacy_v4_envelope_adds_camera_relation_without_losing_moment(self) -> None:
+        token = "ckp_" + "e" * 24
+        legacy_moment = moment(scene="cafe").to_dict()
+        legacy_moment.pop("camera_relation")
+        envelope = (
+            "旧版 V4 照片描述\n\n[[COMPANION_KIT_PHOTO_V4]]\n"
+            + json.dumps(
+                {
+                    "schema_version": 4,
+                    "turn_token": token,
+                    "photo_moment": legacy_moment,
+                    "daily_look": {
+                        "action": "one_shot",
+                        "look_id": None,
+                        "proposal": None,
+                    },
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n[[/COMPANION_KIT_PHOTO_V4]]"
+        )
+
+        cleaned, parsed, directive = parse_photo_envelope_details(
+            envelope,
+            expected_token=token,
+        )
+
+        self.assertEqual(cleaned, "旧版 V4 照片描述")
+        self.assertEqual(parsed.scene, "cafe")
+        self.assertEqual(parsed.camera_relation, "unspecified")
+        self.assertEqual(directive.action, "one_shot")
 
     def test_normalization_clamps_intimacy_and_breaks_repeated_style(self) -> None:
         previous = moment(intimacy_band="everyday")
@@ -376,6 +415,7 @@ class PhotoMomentTests(unittest.TestCase):
             expression="custom",
             makeup="custom",
             portrait_dynamics="custom",
+            camera_relation="custom",
         )
         normalized = normalize_photo_moment(
             previous,
@@ -387,6 +427,7 @@ class PhotoMomentTests(unittest.TestCase):
         self.assertEqual(normalized.expression, "custom")
         self.assertEqual(normalized.makeup, "custom")
         self.assertEqual(normalized.portrait_dynamics, "custom")
+        self.assertEqual(normalized.camera_relation, "custom")
 
     def test_makeup_keeps_short_continuity_then_refreshes_with_new_context(self) -> None:
         first = moment(scene="home", makeup="natural")
@@ -470,6 +511,32 @@ class PhotoMomentTests(unittest.TestCase):
         self.assertIn("不对称的半笑", rendered)
         self.assertIn("不得照抄主脸参考或上一张照片的头部角度、视线和嘴角弧度", rendered)
 
+    def test_photographed_view_uses_physical_camera_event_light_and_depth(self) -> None:
+        current = moment(
+            framing="three_quarter",
+            camera_relation="foreground",
+        )
+
+        rendered = current.render_image_constraints()
+        caption = current.render_caption_context()
+
+        self.assertIn("这是被拍视角", rendered)
+        self.assertIn("位置、高度、距离和观察方向", rendered)
+        self.assertIn("同一件刚发生的事", rendered)
+        self.assertIn("光源固定在场景的世界位置", rendered)
+        self.assertIn("背景要有主次和远近", rendered)
+        self.assertIn("不要自动补商业轮廓光", rendered)
+        self.assertIn("为何回头或被看见的瞬间", caption)
+
+    def test_selfie_view_does_not_receive_photographed_scene_rules(self) -> None:
+        rendered = moment(camera_relation="selfie").render_image_constraints()
+        caption = moment(camera_relation="selfie").render_caption_context()
+
+        self.assertIn("人物自己手持设备", rendered)
+        self.assertNotIn("这是被拍视角", rendered)
+        self.assertNotIn("光源固定在场景的世界位置", rendered)
+        self.assertNotIn("为何回头或被看见的瞬间", caption)
+
     def test_persona_expression_and_caption_act_create_attitude_without_generic_sweetness(self) -> None:
         current = moment(
             expression="self_assured",
@@ -528,6 +595,7 @@ class PhotoMomentTests(unittest.TestCase):
             legacy = moment(scene="home").to_dict()
             legacy.pop("makeup")
             legacy.pop("portrait_dynamics")
+            legacy.pop("camera_relation")
             history_path.write_text(
                 json.dumps(
                     {
@@ -555,11 +623,16 @@ class PhotoMomentTests(unittest.TestCase):
             migrated = json.loads(history_path.read_text(encoding="utf-8"))
             self.assertEqual(loaded[0].makeup, "unspecified")
             self.assertEqual(loaded[0].portrait_dynamics, "unspecified")
+            self.assertEqual(loaded[0].camera_relation, "unspecified")
             self.assertTrue(committed.committed)
-            self.assertEqual(migrated["schema_version"], 3)
+            self.assertEqual(migrated["schema_version"], 4)
             self.assertEqual(migrated["recent"][0]["makeup"], "unspecified")
             self.assertEqual(
                 migrated["recent"][0]["portrait_dynamics"],
+                "unspecified",
+            )
+            self.assertEqual(
+                migrated["recent"][0]["camera_relation"],
                 "unspecified",
             )
             self.assertEqual(migrated["recent"][1]["makeup"], "warm_tone")
@@ -576,6 +649,7 @@ class PhotoMomentTests(unittest.TestCase):
                 makeup="warm_tone",
             ).to_dict()
             v2_moment.pop("portrait_dynamics")
+            v2_moment.pop("camera_relation")
             history_path.write_text(
                 json.dumps(
                     {
@@ -604,12 +678,17 @@ class PhotoMomentTests(unittest.TestCase):
             self.assertEqual(loaded[0].scene, "cafe")
             self.assertEqual(loaded[0].makeup, "warm_tone")
             self.assertEqual(loaded[0].portrait_dynamics, "unspecified")
+            self.assertEqual(loaded[0].camera_relation, "unspecified")
             self.assertTrue(committed.committed)
-            self.assertEqual(migrated["schema_version"], 3)
+            self.assertEqual(migrated["schema_version"], 4)
             self.assertEqual(migrated["recent"][0]["scene"], "cafe")
             self.assertEqual(migrated["recent"][0]["makeup"], "warm_tone")
             self.assertEqual(
                 migrated["recent"][0]["portrait_dynamics"],
+                "unspecified",
+            )
+            self.assertEqual(
+                migrated["recent"][0]["camera_relation"],
                 "unspecified",
             )
 
