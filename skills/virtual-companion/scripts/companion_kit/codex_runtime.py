@@ -178,6 +178,7 @@ class CodexRuntimeContext:
             "expression=soft_smile|open_smile|quiet_direct|playful|thoughtful|calm_serious|sleepy_relaxed|amused|fond|self_assured|guarded_soft|custom；"
             "makeup=bare|minimal|natural|soft_matte|warm_tone|cool_tone|defined_eyes|evening|custom；"
             "portrait_dynamics=direct_soft|three_quarter_soft|downward_private_smile|direct_open_smile|caught_mid_laugh|side_glance_half_smile|curious_tilt|direct_neutral|quiet_off_camera|downward_thoughtful|calm_three_quarter|sleepy_tilt|amused_side_eye|soft_challenge|brief_lookaway|confident_chin_lift|warm_eye_smile|mid_sentence_glance|custom；"
+            "camera_relation=selfie|near|low|high|foreground|distant|custom；"
             "time_band=morning|day|dusk|night|custom；"
             "caption_act=share_detail|soft_tease|unfinished_thought|invite_choice|gentle_check_in|persona_coax|confident_tease|restrained_affection|custom。"
         )
@@ -209,17 +210,17 @@ class CodexRuntimeContext:
             )
         lines = (
             "以下只服务本次人物照片，不展示规则、路径或内部字段。直接调用 Codex 内置 imagegen，不播报准备、计时或状态；用户未要求多张时只生成一张，明确要几张才按数量执行，不隐藏试拍或自动重试。",
-            f"人物外在方向：{_fragment(profile.visual.appearance, 190)}。照片质感：{_fragment(profile.visual.default_style, 220)}。",
-            f"发型软偏好：{_fragment(profile.visual.default_hairstyle, 120)}；表情软偏好：{_fragment(profile.visual.default_expression, 120)}；妆容软偏好：{_fragment(profile.visual.default_makeup, 120)}；服饰软偏好：{_fragment(profile.visual.default_wardrobe, 120)}。这些都不是固定身份，用户要求和近期去重优先。",
+            f"人物外在方向：{_fragment(profile.visual.appearance, 50)}。照片质感：{_fragment(profile.visual.default_style, 140)}。",
+            f"发型软偏好：{_fragment(profile.visual.default_hairstyle, 90)}；表情软偏好：{_fragment(profile.visual.default_expression, 90)}；妆容软偏好：{_fragment(profile.visual.default_makeup, 90)}；服饰软偏好：{_fragment(profile.visual.default_wardrobe, 90)}。这些都不是固定身份，用户要求和近期去重优先。",
             f"当前允许的照片亲密档位：{','.join(photo_bands)}；不得选择列表外档位。关系只控制互动距离、姿态分寸和配图话术，不决定服装、发型、妆容或场景。",
             mode_rule,
             *identity_lines,
             *look_lines,
-            f"最近成功配方（无聊天正文）：{recent_payload}。新拍让 scene/activity/framing/hairstyle/expression 至少两项不同；portrait_dynamics 避开近期重复，让头部角度、视线与嘴角不总是同一套。妆容按生活连续性变化，并响应今日造型、光线和活动；caption_act 结合 Persona 和关系，不套统一甜妹话术。",
-            f"画面描述末尾必须附 V{PHOTO_ENVELOPE_SCHEMA_VERSION} 控制信封；PreToolUse 会移除。字段只用下列枚举。用户点名发型、表情、妆容或面部动态时，对应轴写 custom，细节留在普通画面描述。",
+            f"最近成功配方（无聊天正文）：{recent_payload}。新拍让 scene/activity/framing/hairstyle/expression 至少两项不同；portrait_dynamics 避开近期重复。camera_relation 独立于 framing：明确自拍或镜面自拍用 selfie；他拍、被拍或抓拍选最接近的其他值并避开机械重复，枚举无法表达才用 custom。妆容按生活连续性变化；caption_act 结合 Persona 和关系，不套统一甜妹话术。",
+            f"画面描述末尾必须附 V{PHOTO_ENVELOPE_SCHEMA_VERSION} 控制信封；PreToolUse 会移除。字段只用下列枚举。用户点名发型、表情、妆容或面部动态时，对应轴写 custom；具体机位细节留在普通画面描述。",
             schema,
             "严格使用这个 JSON 结构，不增删字段："
-            f"\n[[COMPANION_KIT_PHOTO_V{PHOTO_ENVELOPE_SCHEMA_VERSION}]]\n{{\"schema_version\":{PHOTO_ENVELOPE_SCHEMA_VERSION},\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"makeup\":\"<enum>\",\"portrait_dynamics\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}},{look_payload}}}\n[[/COMPANION_KIT_PHOTO_V{PHOTO_ENVELOPE_SCHEMA_VERSION}]]",
+            f"\n[[COMPANION_KIT_PHOTO_V{PHOTO_ENVELOPE_SCHEMA_VERSION}]]\n{{\"schema_version\":{PHOTO_ENVELOPE_SCHEMA_VERSION},\"turn_token\":\"{turn_token}\",\"photo_moment\":{{\"mode\":\"{mode}\",\"scene\":\"<enum>\",\"activity\":\"<enum>\",\"framing\":\"<enum>\",\"hairstyle\":\"<enum>\",\"expression\":\"<enum>\",\"makeup\":\"<enum>\",\"portrait_dynamics\":\"<enum>\",\"camera_relation\":\"<enum>\",\"time_band\":\"<enum>\",\"intimacy_band\":\"<allowed>\",\"caption_act\":\"<enum>\",\"identity_version\":{profile.visual.identity_version}}},{look_payload}}}\n[[/COMPANION_KIT_PHOTO_V{PHOTO_ENVELOPE_SCHEMA_VERSION}]]",
             "图片真实返回后再按同一 PhotoMoment 说话；没有真实结果不说已经拍好。",
         )
         rendered = "\n".join(lines)

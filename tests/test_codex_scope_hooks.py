@@ -232,7 +232,7 @@ class CodexScopeHookTests(unittest.TestCase):
             context = json.loads(completed.stdout)["hookSpecificOutput"][
                 "additionalContext"
             ]
-            self.assertIn("COMPANION_KIT_PHOTO_V4", context)
+            self.assertIn("COMPANION_KIT_PHOTO_V5", context)
             with patch.dict(
                 os.environ,
                 {"COMPANION_HOME": str(home)},
